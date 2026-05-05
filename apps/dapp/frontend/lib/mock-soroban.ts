@@ -63,7 +63,7 @@ export async function simulateSubmission(explorerUrlBase?: string) {
 
     return {
         txHash,
-        explorerUrl: explorerUrlBase ? `${explorerUrlBase}/tx/${txHash}` : getExplorerTxUrl(txHash),
+        explorerUrl: explorerUrlBase ? `${explorerUrlBase}/transactions/${txHash}` : getExplorerTxUrl(txHash),
     };
 }
 

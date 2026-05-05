@@ -362,7 +362,7 @@ export default function PortfolioPage() {
                                                 </div>
                                                 {tx.txHash && (
                                                     <a
-                                                        href={`${currentNetwork.explorerUrl}/tx/${tx.txHash}`}
+                                                        href={`${currentNetwork.explorerUrl}/transactions/${tx.txHash}`}
                                                         target="_blank"
                                                         rel="noreferrer"
                                                         className="flex h-6 w-6 items-center justify-center rounded-md text-black/25 hover:bg-black/[0.04] hover:text-black/50 transition-colors"
