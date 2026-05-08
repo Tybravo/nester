@@ -46,7 +46,7 @@ export const VAULTS: Vault[] = [
     id: "usdc",
     name: "USDC Market",
     description:
-      "Supply USDC to earn yield from lending demand. Funds are deployed across audited lending protocols for stable, consistent returns.",
+      "Supply USDC to earn yield from lending demand. Funds are deployed into Blend Protocol, the leading Soroban-native lending market on Stellar.",
     marketType: "single",
     tokens: ["USDC"],
     currentApy: 7.4,
@@ -54,9 +54,8 @@ export const VAULTS: Vault[] = [
     tvl: 2_400_000,
     utilization: 72,
     allocations: [
-      { protocol: "Blend", percentage: 40, apy: 6.2, color: "#2EBAC6" },
-      { protocol: "Aave", percentage: 35, apy: 8.1, color: "#B6509E" },
-      { protocol: "Compound", percentage: 25, apy: 7.8, color: "#6366f1" },
+      { protocol: "Blend Protocol", percentage: 80, apy: 7.4, color: "#2EBAC6" },
+      { protocol: "Stellar DEX", percentage: 20, apy: 7.0, color: "#6366f1" },
     ],
     supportedAssets: ["USDC"],
     maturityTerms: "Flexible - withdraw anytime",
@@ -97,7 +96,7 @@ export const VAULTS: Vault[] = [
     id: "xlm",
     name: "XLM Market",
     description:
-      "Supply XLM and earn from borrowing demand and protocol incentives. Optimized across Stellar-native lending markets.",
+      "Supply XLM and earn from borrowing demand. Funds are deployed into Blend Protocol's XLM lending pool and the Stellar native DEX.",
     marketType: "single",
     tokens: ["XLM"],
     currentApy: 5.8,
@@ -105,8 +104,8 @@ export const VAULTS: Vault[] = [
     tvl: 1_600_000,
     utilization: 58,
     allocations: [
-      { protocol: "Blend", percentage: 55, apy: 5.4, color: "#2EBAC6" },
-      { protocol: "Stellar AMM", percentage: 45, apy: 6.3, color: "#B6509E" },
+      { protocol: "Blend Protocol", percentage: 70, apy: 5.4, color: "#2EBAC6" },
+      { protocol: "Stellar DEX AMM", percentage: 30, apy: 6.3, color: "#6366f1" },
     ],
     supportedAssets: ["XLM"],
     maturityTerms: "Flexible - withdraw anytime",
