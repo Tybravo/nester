@@ -208,9 +208,9 @@ func TestVaultHandlerListUserVaultsReturns200WithAllocations(t *testing.T) {
 	}
 
 	// List user vaults
-	listResponse, err := http.Get(server.URL + "/api/v1/users/" + userID.String() + "/vaults")
+	listResponse, err := http.Get(server.URL + "/api/v1/vaults?userId=" + userID.String())
 	if err != nil {
-		t.Fatalf("GET /api/v1/users/{userId}/vaults error = %v", err)
+		t.Fatalf("GET GET /api/v1/vaults?userId={userId} error = %v", err)
 	}
 	defer listResponse.Body.Close()
 
@@ -373,9 +373,9 @@ func TestVaultHandlerListUserVaultsReturns400ForInvalidUserID(t *testing.T) {
 	defer server.Close()
 
 	// List vaults with invalid user ID
-	response, err := http.Get(server.URL + "/api/v1/users/not-a-uuid/vaults")
+	response, err := http.Get(server.URL + "/api/v1/vaults?userId=not-a-uuid")
 	if err != nil {
-		t.Fatalf("GET /api/v1/users/{userId}/vaults error = %v", err)
+		t.Fatalf("GET GET /api/v1/vaults?userId={userId} error = %v", err)
 	}
 	defer response.Body.Close()
 

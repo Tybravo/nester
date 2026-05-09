@@ -100,9 +100,9 @@ func TestVaultHandlerIntegrationCreateGetListAndErrors(t *testing.T) {
 		t.Fatalf("expected 2 allocations, got %d", len(fetched.Allocations))
 	}
 
-	listResponse, err := http.Get(server.URL + "/api/v1/users/" + userID.String() + "/vaults")
+	listResponse, err := http.Get(server.URL + "/api/v1/vaults?userId=" + userID.String())
 	if err != nil {
-		t.Fatalf("GET /api/v1/users/{userId}/vaults error = %v", err)
+		t.Fatalf("GET GET /api/v1/vaults?userId={userId} error = %v", err)
 	}
 	defer listResponse.Body.Close()
 
@@ -123,7 +123,7 @@ func TestVaultHandlerIntegrationCreateGetListAndErrors(t *testing.T) {
 		t.Fatalf("expected 404 for missing vault, got %d", notFoundResponse.StatusCode)
 	}
 
-	invalidUserResponse, err := http.Get(server.URL + "/api/v1/users/not-a-uuid/vaults")
+	invalidUserResponse, err := http.Get(server.URL + "/api/v1/vaults?userId=not-a-uuid")
 	if err != nil {
 		t.Fatalf("GET invalid user error = %v", err)
 	}
