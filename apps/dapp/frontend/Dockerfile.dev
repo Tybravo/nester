@@ -3,7 +3,7 @@ RUN apk add --no-cache python3 make g++ linux-headers eudev-dev
 RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
 COPY package.json ./
-RUN pnpm install
+RUN pnpm install --ignore-scripts
 COPY . .
 EXPOSE 3001
 CMD ["pnpm", "run", "dev"]
