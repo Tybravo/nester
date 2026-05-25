@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { ProtectedRoute } from "@/components/protected-route";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     Unlock,
@@ -23,7 +23,9 @@ import { usePortfolio } from "@/components/portfolio-provider";
 import { cn } from "@/lib/utils";
 import { PositionCards } from "@/components/position-cards";
 import {
-    executeVaultDeposit,
+    buildDepositTransaction,
+    signTransaction,
+    submitTransaction,
     UserRejectedError,
     TransactionFailedError,
     TransactionTimeoutError,
@@ -47,7 +49,6 @@ interface SavingsVault {
     badge: string;
     features: string[];
     supportedAssets: ("USDC" | "XLM")[];
-    contractAddress: string;
 }
 
 // ── Vault Definitions ─────────────────────────────────────────────────────────
@@ -69,7 +70,6 @@ const SAVINGS_VAULTS: SavingsVault[] = [
         badge: "No lockup",
         features: ["Withdraw anytime", "No exit fee", "Daily yield accrual"],
         supportedAssets: ["USDC", "XLM"],
-        contractAddress: "CINVALIDCONTRACTADDRESS00000000000000000000000000000000000",
     },
     {
         id: "auto-compound",
@@ -87,7 +87,6 @@ const SAVINGS_VAULTS: SavingsVault[] = [
         badge: "Auto-reinvest",
         features: ["Daily auto-compounding", "No manual claiming", "No exit fee"],
         supportedAssets: ["USDC", "XLM"],
-        contractAddress: "CINVALIDCONTRACTADDRESS00000000000000000000000000000000000",
     },
     {
         id: "stablecoin-yield",
@@ -105,7 +104,6 @@ const SAVINGS_VAULTS: SavingsVault[] = [
         badge: "Multi-pool",
         features: ["Multi-stablecoin exposure", "Weekly rebalance", "No exit fee"],
         supportedAssets: ["USDC", "XLM"],
-        contractAddress: "CINVALIDCONTRACTADDRESS00000000000000000000000000000000000",
     },
     {
         id: "custom-savings",
@@ -123,7 +121,6 @@ const SAVINGS_VAULTS: SavingsVault[] = [
         badge: "Goal-based",
         features: ["Named savings goal", "Target amount tracking", "Withdraw anytime"],
         supportedAssets: ["USDC", "XLM"],
-        contractAddress: "CINVALIDCONTRACTADDRESS00000000000000000000000000000000000",
     },
 ];
 
@@ -520,16 +517,30 @@ function DepositModal({
                                     if (!vault || !canSubmit || !address) return;
                                     setErrorMsg("");
                                     try {
+                                        const USDC_CONTRACT = process.env.NEXT_PUBLIC_VAULT_CONTRACT_ID ?? "";
+                                        const XLM_CONTRACT = process.env.NEXT_PUBLIC_VAULT_XLM_CONTRACT_ID ?? "";
+                                        const contractId = selectedAsset === "XLM" ? XLM_CONTRACT : USDC_CONTRACT;
+
+                                        if (!/^C[A-Z0-9]{55}$/.test(contractId)) {
+                                            setErrorMsg("Vault contract not configured. Check environment variables.");
+                                            setTxState("error");
+                                            return;
+                                        }
+
                                         setTxState("building");
-                                        const receipt = await executeVaultDeposit({
+                                        const { xdr } = await buildDepositTransaction({
                                             walletAddress: address,
-                                            vaultId: vault.id,
-                                            contractId: vault.contractAddress,
-                                            asset: selectedAsset,
+                                            contractId,
                                             amount: parsedAmount,
                                         });
 
-                                        setTxHash(receipt.txHash);
+                                        setTxState("signing");
+                                        const signedXdr = await signTransaction(xdr);
+
+                                        setTxState("submitting");
+                                        const txReceipt = await submitTransaction(signedXdr);
+
+                                        setTxHash(txReceipt.txHash);
                                         setTxState("success");
                                         refreshBalances();
                                         recordDeposit({
@@ -542,7 +553,8 @@ function DepositModal({
                                                 earlyWithdrawalPenaltyPct: vault.penaltyPct,
                                             },
                                             amount: parsedAmount,
-                                            txHash: receipt.txHash,
+                                            txHash: txReceipt.txHash,
+                                            isOnChain: true,
                                         });
                                         setTimeout(onClose, 1500);
                                     } catch (err) {
@@ -622,10 +634,18 @@ const FILTERS: { label: string; value: SavingsVaultType | "all" }[] = [
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function SavingsPage() {
+    const { isConnected } = useWallet();
     const { positions } = usePortfolio();
+    const router = useRouter();
     const [filter, setFilter] = useState<SavingsVaultType | "all">("all");
     const [selectedVault, setSelectedVault] = useState<SavingsVault | null>(null);
     const [showHowItWorks, setShowHowItWorks] = useState(false);
+
+    useEffect(() => {
+        if (!isConnected) router.push("/");
+    }, [isConnected, router]);
+
+    if (!isConnected) return null;
 
     const filtered =
         filter === "all"
@@ -633,8 +653,7 @@ export default function SavingsPage() {
             : SAVINGS_VAULTS.filter((v) => v.type === filter);
 
     return (
-        <ProtectedRoute>
-            <AppShell>
+        <AppShell>
 
                 {/* ── Page header ──────────────────────────────────────────── */}
                 <motion.div
@@ -760,6 +779,5 @@ export default function SavingsPage() {
 
             <DepositModal vault={selectedVault} onClose={() => setSelectedVault(null)} />
         </AppShell>
-        </ProtectedRoute>
     );
 }

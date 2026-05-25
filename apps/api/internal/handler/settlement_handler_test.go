@@ -359,7 +359,7 @@ func TestSettlementHandler_ListUserSettlementsWithStatus(t *testing.T) {
 		t.Fatalf("POST: %v", err)
 	}
 
-	resp, err := http.Get(server.URL + "/api/v1/users/" + userID.String() + "/settlements?status=initiated")
+	resp, err := http.Get(server.URL + "/api/v1/settlements?userId=" + userID.String() + "&status=initiated")
 	if err != nil {
 		t.Fatalf("GET list: %v", err)
 	}

@@ -39,6 +39,7 @@ services:
       STELLAR_NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
       STELLAR_RPC_URL: https://soroban-testnet.stellar.org
       STELLAR_HORIZON_URL: https://horizon-testnet.stellar.org
+      AUTH_JWT_SECRET: dev-nester-jwt-secret-change-in-production
       LOG_LEVEL: info
       LOG_FORMAT: text
     depends_on:
@@ -66,6 +67,7 @@ services:
       NEXT_PUBLIC_API_URL: http://localhost:8080
       NEXT_PUBLIC_WS_URL: ws://localhost:8080/ws
       NEXT_PUBLIC_NETWORK: testnet
+      INTELLIGENCE_SERVICE_URL: http://intelligence:8000
     volumes:
       - ./apps/dapp/frontend:/app
       - /app/node_modules
@@ -76,8 +78,13 @@ services:
       context: ./apps/intelligence
     ports:
       - "8000:8000"
+    env_file:
+      - ./apps/intelligence/.env
     environment:
-      INTELLIGENCE_ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-sk-placeholder}
+      INTELLIGENCE_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s

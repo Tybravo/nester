@@ -10,10 +10,8 @@ import {
 } from "react";
 
 import { useWallet } from "@/components/wallet-provider";
+import { getVaultById, type SupportedAsset } from "@/lib/vault-data";
 import { useNetwork } from "@/hooks/useNetwork";
-import { safeStorage } from "@/lib/storage";
-
-export type SupportedAsset = "USDC" | "XLM";
 
 export type PortfolioTransactionType =
     | "Deposit"
@@ -31,6 +29,7 @@ export interface PortfolioTransaction {
     timestamp: string;
     status: PortfolioTransactionStatus;
     txHash: string;
+    isOnChain?: boolean;
 }
 
 interface StoredPosition {
@@ -64,6 +63,7 @@ interface DepositInput {
     };
     amount: number;
     txHash: string;
+    isOnChain?: boolean;
 }
 
 interface TransferInput {
@@ -84,6 +84,7 @@ interface WithdrawalInput {
     positionId: string;
     grossAmount: number;
     txHash: string;
+    isOnChain?: boolean;
 }
 
 interface WithdrawalQuote {
@@ -122,7 +123,7 @@ const defaultBalances = {
 const PortfolioContext = createContext<PortfolioState | null>(null);
 
 function storageKey(address: string) {
-    return `nester_portfolio_v1:${address}`;
+    return `nester_portfolio_v2:${address}`;
 }
 
 function calculatePositionMetrics(position: StoredPosition): PortfolioPosition {
@@ -131,7 +132,7 @@ function calculatePositionMetrics(position: StoredPosition): PortfolioPosition {
     const maturityAt = new Date(position.maturityAt);
     const elapsedMs = Math.max(0, now.getTime() - depositedAt.getTime());
     const elapsedDays = elapsedMs / (1000 * 60 * 60 * 24);
-    const accruedYield = position.principal * (Math.pow(1 + position.apy, elapsedDays / 365) - 1);
+    const accruedYield = position.principal * position.apy * (elapsedDays / 365);
     const currentValue = position.principal + accruedYield;
     const msRemaining = maturityAt.getTime() - now.getTime();
     const daysRemaining = Math.max(0, Math.ceil(msRemaining / (1000 * 60 * 60 * 24)));
@@ -145,10 +146,6 @@ function calculatePositionMetrics(position: StoredPosition): PortfolioPosition {
     };
 }
 
-function createTransactionHash() {
-    const alphabet = "abcdef0123456789";
-    return Array.from({ length: 64 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
-}
 
 export function PortfolioProvider({ children }: { children: ReactNode }) {
     const { address } = useWallet();
@@ -169,23 +166,41 @@ function PortfolioStore({
     const { currentNetwork } = useNetwork();
 
     const initialState = useMemo(() => {
-        if (!address) {
+        if (!address || typeof window === "undefined") {
             return {
                 balances: defaultBalances,
                 positions: [] as StoredPosition[],
                 transactions: [] as PortfolioTransaction[],
             };
         }
-        const stored = safeStorage.get<{
-            balances?: Record<string, number>;
-            positions?: StoredPosition[];
-            transactions?: PortfolioTransaction[];
-        }>(storageKey(address), {});
-        return {
-            balances: stored.balances ?? defaultBalances,
-            positions: stored.positions ?? [],
-            transactions: stored.transactions ?? [],
-        };
+
+        const raw = window.localStorage.getItem(storageKey(address));
+        if (!raw) {
+            return {
+                balances: defaultBalances,
+                positions: [] as StoredPosition[],
+                transactions: [] as PortfolioTransaction[],
+            };
+        }
+
+        try {
+            const parsed = JSON.parse(raw) as {
+                balances?: Record<string, number>;
+                positions?: StoredPosition[];
+                transactions?: PortfolioTransaction[];
+            };
+            return {
+                balances: parsed.balances ?? defaultBalances,
+                positions: parsed.positions ?? [],
+                transactions: (parsed.transactions ?? []).filter((t) => t.isOnChain === true),
+            };
+        } catch {
+            return {
+                balances: defaultBalances,
+                positions: [] as StoredPosition[],
+                transactions: [] as PortfolioTransaction[],
+            };
+        }
     }, [address]);
 
     const [balances, setBalances] = useState<Record<string, number>>(
@@ -197,40 +212,18 @@ function PortfolioStore({
     const [transactions, setTransactions] = useState<PortfolioTransaction[]>(
         initialState.transactions
     );
-    const markConfirmed = (txHash: string) => {
-        setTransactions((current) =>
-            current.map((tx) =>
-                tx.txHash === txHash && tx.status === "Pending"
-                    ? { ...tx, status: "Confirmed" }
-                    : tx
-            )
+
+    useEffect(() => {
+        if (!address || typeof window === "undefined") return;
+        window.localStorage.setItem(
+            storageKey(address),
+            JSON.stringify({
+                balances,
+                positions: storedPositions,
+                transactions,
+            })
         );
-    };
-
-    useEffect(() => {
-        if (!address) return;
-        safeStorage.set(storageKey(address), {
-            balances,
-            positions: storedPositions,
-            transactions,
-        });
     }, [address, balances, storedPositions, transactions]);
-
-    // Cross-tab sync: when another tab writes the same wallet's state, mirror
-    // it locally so dashboard/vaults pages don't show stale data.
-    useEffect(() => {
-        if (!address) return;
-        return safeStorage.subscribe<{
-            balances?: Record<string, number>;
-            positions?: StoredPosition[];
-            transactions?: PortfolioTransaction[];
-        }>(storageKey(address), (next) => {
-            if (!next) return;
-            if (next.balances) setBalances(next.balances);
-            if (next.positions) setStoredPositions(next.positions);
-            if (next.transactions) setTransactions(next.transactions);
-        });
-    }, [address]);
 
     // Sync real on-chain balances from Horizon whenever address or network changes
     useEffect(() => {
@@ -261,8 +254,8 @@ function PortfolioStore({
                     XLM: xlm ? parseFloat(xlm.balance) : (prev.XLM ?? 0),
                     USDC: usdc ? parseFloat(usdc.balance) : (prev.USDC ?? 0),
                 }));
-            } catch (err) {
-                console.warn("[portfolio] Failed to fetch on-chain balances; using cached values:", err);
+            } catch {
+                // silently ignore — local balances remain as fallback
             }
         };
 
@@ -293,8 +286,8 @@ function PortfolioStore({
                 XLM: xlm ? parseFloat(xlm.balance) : (prev.XLM ?? 0),
                 USDC: usdc ? parseFloat(usdc.balance) : (prev.USDC ?? 0),
             }));
-        } catch (err) {
-            console.warn("[portfolio] Failed to refresh on-chain balances:", err);
+        } catch {
+            // silently ignore
         }
     };
 
@@ -328,7 +321,7 @@ function PortfolioStore({
 
     const getWithdrawalQuote = (positionId: string, grossAmount: number) => {
         const position = positions.find((item) => item.id === positionId);
-        if (!position || grossAmount <= 0 || grossAmount > position.currentValue || position.currentValue === 0) {
+        if (!position || grossAmount <= 0 || grossAmount > position.currentValue) {
             return null;
         }
 
@@ -348,7 +341,7 @@ function PortfolioStore({
         };
     };
 
-    const recordDeposit = ({ vault, amount, txHash }: DepositInput) => {
+    const recordDeposit = ({ vault, amount, txHash, isOnChain }: DepositInput) => {
         const now = new Date();
         const maturityAt = new Date(now);
         maturityAt.setDate(maturityAt.getDate() + (vault.lockDays ?? 0));
@@ -380,15 +373,15 @@ function PortfolioStore({
                 asset: vault.asset,
                 vaultName: vault.name,
                 timestamp: now.toISOString(),
-                status: "Pending",
-                txHash: txHash || createTransactionHash(),
+                status: "Confirmed",
+                txHash: txHash ?? "",
+                isOnChain: isOnChain ?? false,
             },
             ...current,
         ]);
-        window.setTimeout(() => markConfirmed(txHash), 6000);
     };
 
-    const recordWithdrawal = ({ positionId, grossAmount, txHash }: WithdrawalInput) => {
+    const recordWithdrawal = ({ positionId, grossAmount, txHash, isOnChain }: WithdrawalInput) => {
         const quote = getWithdrawalQuote(positionId, grossAmount);
         if (!quote) return null;
 
@@ -431,12 +424,12 @@ function PortfolioStore({
                 asset: target.asset,
                 vaultName: target.vaultName,
                 timestamp: new Date().toISOString(),
-                status: "Pending",
-                txHash: txHash || createTransactionHash(),
+                status: "Confirmed",
+                txHash: txHash ?? "",
+                isOnChain: isOnChain ?? false,
             },
             ...current,
         ]);
-        window.setTimeout(() => markConfirmed(txHash), 6000);
 
         return quote;
     };
@@ -486,12 +479,11 @@ function PortfolioStore({
                 asset: toVault.asset,
                 vaultName: `${source.vaultName} → ${toVault.name}`,
                 timestamp: now.toISOString(),
-                status: "Pending",
-                txHash: txHash || createTransactionHash(),
+                status: "Confirmed",
+                txHash: txHash ?? "",
             },
             ...current,
         ]);
-        window.setTimeout(() => markConfirmed(txHash), 6000);
     };
 
     return (
@@ -521,4 +513,8 @@ export function usePortfolio() {
         throw new Error("usePortfolio must be used within PortfolioProvider");
     }
     return context;
+}
+
+export function getVaultForPosition(position: PortfolioPosition) {
+    return getVaultById(position.vaultId);
 }

@@ -49,15 +49,6 @@ export function RecentActivity({ transactions }: RecentActivityProps) {
             ) : (
                 <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse min-w-[600px]">
-                        <caption className="sr-only">Recent Transaction Activity</caption>
-                        <thead className="sr-only">
-                            <tr>
-                                <th scope="col">Type</th>
-                                <th scope="col" aria-sort="descending">Date</th>
-                                <th scope="col">Amount</th>
-                                <th scope="col">Transaction Hash</th>
-                            </tr>
-                        </thead>
                         <tbody className="divide-y divide-border">
                             {latestItems.map((tx) => {
                                 const Icon = TYPE_ICONS[tx.type];
@@ -92,6 +83,7 @@ export function RecentActivity({ transactions }: RecentActivityProps) {
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 text-right">
+                                            {tx.isOnChain && tx.txHash ? (
                                             <a
                                                 href={getExplorerTxUrl(tx.txHash)}
                                                 target="_blank"
@@ -101,6 +93,9 @@ export function RecentActivity({ transactions }: RecentActivityProps) {
                                                 {truncateAddress(tx.txHash, 4)}
                                                 <ExternalLink className="h-3 w-3 opacity-50 group-hover/link:opacity-100" />
                                             </a>
+                                        ) : (
+                                            <span className="text-xs text-muted-foreground/40 font-mono">—</span>
+                                        )}
                                         </td>
                                     </tr>
                                 );

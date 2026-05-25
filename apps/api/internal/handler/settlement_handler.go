@@ -25,7 +25,7 @@ func NewSettlementHandler(svc *service.SettlementService) *SettlementHandler {
 func (h *SettlementHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/settlements", h.initiateSettlement)
 	mux.HandleFunc("GET /api/v1/settlements/{id}", h.getSettlement)
-	mux.HandleFunc("GET /api/v1/users/{userId}/settlements", h.listUserSettlements)
+	mux.HandleFunc("GET /api/v1/settlements", h.listUserSettlements)
 	mux.HandleFunc("PATCH /api/v1/settlements/{id}/status", h.updateStatus)
 }
 
@@ -142,7 +142,7 @@ func (h *SettlementHandler) getSettlement(w http.ResponseWriter, r *http.Request
 }
 
 func (h *SettlementHandler) listUserSettlements(w http.ResponseWriter, r *http.Request) {
-	userID, err := uuid.Parse(r.PathValue("userId"))
+	userID, err := uuid.Parse(r.URL.Query().Get("userId"))
 	if err != nil {
 		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("user id must be a valid UUID"))
 		return

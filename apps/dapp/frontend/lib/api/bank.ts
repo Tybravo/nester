@@ -22,22 +22,72 @@ export type ResolveResult =
   | { status: "not_found" }
   | { status: "provider_error" };
 
+// Hardcoded list used as fallback when the API is unavailable (e.g. no provider keys configured).
+// CBN bank codes from the NIBBS/NIP directory — kept in sync with Paystack's bank list.
+const NG_BANKS_FALLBACK: Bank[] = [
+  { name: "Access Bank", code: "044", country: "NG" },
+  { name: "Citibank Nigeria", code: "023", country: "NG" },
+  { name: "Ecobank Nigeria", code: "050", country: "NG" },
+  { name: "Fidelity Bank", code: "070", country: "NG" },
+  { name: "First Bank of Nigeria", code: "011", country: "NG" },
+  { name: "First City Monument Bank (FCMB)", code: "214", country: "NG" },
+  { name: "Guaranty Trust Bank (GTBank)", code: "058", country: "NG" },
+  { name: "Heritage Bank", code: "030", country: "NG" },
+  { name: "Keystone Bank", code: "082", country: "NG" },
+  { name: "Polaris Bank", code: "076", country: "NG" },
+  { name: "Providus Bank", code: "101", country: "NG" },
+  { name: "Stanbic IBTC Bank", code: "221", country: "NG" },
+  { name: "Standard Chartered Bank", code: "068", country: "NG" },
+  { name: "Sterling Bank", code: "232", country: "NG" },
+  { name: "Union Bank of Nigeria", code: "032", country: "NG" },
+  { name: "United Bank for Africa (UBA)", code: "033", country: "NG" },
+  { name: "Unity Bank", code: "215", country: "NG" },
+  { name: "Wema Bank", code: "035", country: "NG" },
+  { name: "Zenith Bank", code: "057", country: "NG" },
+  { name: "Jaiz Bank", code: "301", country: "NG" },
+  { name: "SunTrust Bank", code: "100", country: "NG" },
+  { name: "Titan Trust Bank", code: "102", country: "NG" },
+  { name: "Globus Bank", code: "103", country: "NG" },
+  { name: "Taj Bank", code: "302", country: "NG" },
+  { name: "Coronation Merchant Bank", code: "559", country: "NG" },
+  { name: "FBNQuest Merchant Bank", code: "060", country: "NG" },
+  { name: "FSDH Merchant Bank", code: "501", country: "NG" },
+  { name: "Rand Merchant Bank", code: "502", country: "NG" },
+  { name: "Kuda Bank", code: "090267", country: "NG" },
+  { name: "OPay", code: "999992", country: "NG" },
+  { name: "Moniepoint MFB", code: "50515", country: "NG" },
+  { name: "PalmPay", code: "999991", country: "NG" },
+  { name: "Carbon (Paylater)", code: "565", country: "NG" },
+  { name: "VFD Microfinance Bank", code: "566", country: "NG" },
+  { name: "Rubies Bank", code: "125", country: "NG" },
+  { name: "Sparkle Microfinance Bank", code: "090325", country: "NG" },
+  { name: "Fairmoney Microfinance Bank", code: "090560", country: "NG" },
+  { name: "Paycom (Opay Digital Services)", code: "100004", country: "NG" },
+  { name: "9Payment Service Bank (9PSB)", code: "120001", country: "NG" },
+  { name: "Momo Payment Service Bank (MTN)", code: "120003", country: "NG" },
+];
+
 /**
- * Fetch the bank list for a country from the Go API (cached 24h server-side).
- * Throws on network errors.
+ * Fetch the bank list from the Go API, falling back to the hardcoded list
+ * if the API is unavailable (e.g. no provider keys configured in dev).
  */
 export async function fetchBankList(country = "NG"): Promise<Bank[]> {
-  const res = await fetch(`${API_BASE}/api/v1/banks?country=${country}`, {
-    // Cache in the browser for 1 hour — server refreshes every 24h.
-    next: { revalidate: 3600 },
-  });
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/banks?country=${country}`, {
+      next: { revalidate: 3600 },
+    });
 
-  if (!res.ok) {
-    throw new Error(`Failed to fetch bank list: ${res.status}`);
+    if (!res.ok) {
+      return country === "NG" ? NG_BANKS_FALLBACK : [];
+    }
+
+    const json = await res.json();
+    const list = (json.data ?? []) as Bank[];
+    // If the API returns an empty list (e.g. empty DB), fall back to static list.
+    return list.length > 0 ? list : (country === "NG" ? NG_BANKS_FALLBACK : []);
+  } catch {
+    return country === "NG" ? NG_BANKS_FALLBACK : [];
   }
-
-  const json = await res.json();
-  return (json.data ?? []) as Bank[];
 }
 
 /**

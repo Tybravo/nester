@@ -12,10 +12,10 @@ const getCurrentNetwork = () => {
 
 export const getExplorerTxUrl = (hash: string) => {
   const currentNetwork = getCurrentNetwork();
-  return `${currentNetwork.explorerUrl}/tx/${hash}`;
+  return `${currentNetwork.explorerUrl}/transactions/${hash}`;
 };
 
 export const getExplorerAccountUrl = (address: string) => {
   const currentNetwork = getCurrentNetwork();
-  return `${currentNetwork.explorerUrl}/account/${address}`;
+  return `${currentNetwork.explorerUrl}/accounts/${address}`;
 };
