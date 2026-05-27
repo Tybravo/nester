@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
