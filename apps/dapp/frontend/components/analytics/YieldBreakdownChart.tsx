@@ -75,3 +75,4 @@ export default function YieldBreakdownChart({ data }: YieldBreakdownChartProps) 
     </div>
   );
 }
+export { YieldBreakdownChart };

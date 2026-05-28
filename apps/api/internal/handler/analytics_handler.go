@@ -1,13 +1,10 @@
 package handler
 
 import (
-	"context"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/suncrestlabs/nester/apps/api/internal/domain/analytics"
-	"github.com/suncrestlabs/nester/apps/api/internal/domain/performance"
 	"github.com/suncrestlabs/nester/apps/api/internal/service/performance"
 	"github.com/suncrestlabs/nester/apps/api/pkg/logger"
 	"github.com/suncrestlabs/nester/apps/api/pkg/response"

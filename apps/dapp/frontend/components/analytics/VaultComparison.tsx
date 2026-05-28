@@ -98,3 +98,4 @@ export default function VaultComparison({ vaults }: VaultComparisonProps) {
     </div>
   );
 }
+export { VaultComparison };

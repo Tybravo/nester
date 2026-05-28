@@ -151,7 +151,7 @@ type BalanceProvider interface {
 // GetUserAnalytics returns aggregated analytics data for a user's vaults
 func (s *Service) GetUserAnalytics(ctx context.Context, userID uuid.UUID, fromTime, toTime time.Time) (*analytics.AnalyticsResponse, error) {
 	// Get user's vaults
-	userVaults, err := s.vaultRepo.GetUserVaults(ctx, userID)
+	userVaults, _, err := s.vaultRepo.ListUserVaults(ctx, userID, vault.UserListFilter{Page: 1, PerPage: 1000})
 	if err != nil {
 		return &analytics.AnalyticsResponse{}, fmt.Errorf("failed to get user vaults: %w", err)
 	}
@@ -174,7 +174,7 @@ func (s *Service) GetUserAnalytics(ctx context.Context, userID uuid.UUID, fromTi
 	if len(userVaults) > 0 {
 		// For simplicity, we're generating a simple time series based on the first vault's history
 		// In production, this should come from a dedicated analytics table or service
-		firstVaultID := userVaults[0].VaultID
+		firstVaultID := userVaults[0].ID
 		snapshots, err := s.repo.HistoryForVault(ctx, firstVaultID, fromTime)
 		if err != nil && !errors.Is(err, perfdom.ErrSnapshotNotFound) {
 			return &analytics.AnalyticsResponse{}, fmt.Errorf("failed to get vault history: %w", err)

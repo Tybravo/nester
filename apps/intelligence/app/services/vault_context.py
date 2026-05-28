@@ -23,7 +23,7 @@ class VaultContextFetcher:
             self._market_rates_cache = TTLCache(maxsize=100, ttl=300)  # 5 minutes
         else:
             self._market_rates_cache = {}
-            self._market_rates_cache_expiry = 0
+            self._market_rates_cache_expiry: float = 0.0
 
     async def fetch_user_vaults(self, user_id: str) -> List[Dict[str, Any]]:
         """
@@ -94,7 +94,7 @@ class VaultContextFetcher:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=headers) as response:
                     if response.status == 200:
-                        return await response.json()
+                        return dict(await response.json())
                     else:
                         logger.warning(
                             f"Failed to fetch risk for vault {vault_id}: {response.status}"
@@ -114,13 +114,13 @@ class VaultContextFetcher:
         if HAS_CACHETOOLS:
             cached = self._market_rates_cache.get("market_rates")
             if cached is not None:
-                return cached
+                return list(cached)
         else:
             import time
             if time.time() < self._market_rates_cache_expiry and self._market_rates_cache.get(
                 "data"
             ):
-                return self._market_rates_cache["data"]
+                return list(self._market_rates_cache["data"])
 
         # Fetch from DefiLlama
         url = "https://yields.llama.fi/pools"
@@ -155,7 +155,7 @@ class VaultContextFetcher:
                                 "data": filtered_rates,
                                 "expiry": time.time() + 300  # 5 minutes
                             }
-                            self._market_rates_cache_expiry = time.time() + 300
+                            self._market_rates_cache_expiry = float(time.time() + 300)
 
                         return filtered_rates
                     else:
@@ -192,7 +192,7 @@ class VaultContextFetcher:
                 "data": fallback_rates,
                 "expiry": time.time() + 300
             }
-            self._market_rates_cache_expiry = time.time() + 300
+            self._market_rates_cache_expiry = float(time.time() + 300)
 
         return fallback_rates
 
@@ -275,7 +275,7 @@ class VaultContextFetcher:
             }
 
             primary_driver = (
-                max(weighted_scores, key=weighted_scores.get) if weighted_scores else "unknown"
+                max(weighted_scores, key=lambda k: weighted_scores[k]) if weighted_scores else "unknown"
             )
             primary_driver_name = {
                 "concentration_risk": "Concentration Risk",

@@ -76,3 +76,4 @@ export default function RiskGauge({ vaultId }: RiskGaugeProps) {
     </div>
   );
 }
+export { RiskGauge };

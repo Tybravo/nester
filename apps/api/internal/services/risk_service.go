@@ -53,7 +53,7 @@ func (s *RiskService) Score(ctx context.Context, vaultID uuid.UUID) (*RiskScore,
 	s.cacheMu.RUnlock()
 
 	// Fetch the vault
-	vault, err := s.vaultRepo.GetVault(ctx, vaultID)
+	v, err := s.vaultRepo.GetVault(ctx, vaultID)
 	if err != nil {
 		if errors.Is(err, vault.ErrVaultNotFound) {
 			return nil, err
@@ -62,12 +62,12 @@ func (s *RiskService) Score(ctx context.Context, vaultID uuid.UUID) (*RiskScore,
 	}
 
 	// If the vault has no allocations, return an error (as per requirement)
-	if len(vault.Allocations) == 0 {
+	if len(v.Allocations) == 0 {
 		return nil, errors.New("empty vault: no allocations")
 	}
 
 	// Compute the risk score
-	score := s.computeRiskScore(vault)
+	score := s.computeRiskScore(&v)
 
 	// Store in cache
 	s.cacheMu.Lock()

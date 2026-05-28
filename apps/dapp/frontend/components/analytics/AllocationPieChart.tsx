@@ -25,6 +25,13 @@ export default function AllocationPieChart({ data }: AllocationPieChartProps) {
 
   const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042', '#008B8B', '#B8860B', '#DA70D6'];
 
+  const formatTooltipLabel = (label: unknown) => {
+    const item = chartData.find(d => d.name === label);
+    const balance = item?.balance?.toLocaleString(undefined, { style: 'currency', currency: 'USD' });
+    const apy = item?.apy?.toFixed(2);
+    return `${label} (${balance} | APY: ${apy}%)`;
+  };
+
   return (
     <div className="w-full">
       <ResponsiveContainer width="100%" height={300}>
@@ -47,7 +54,7 @@ export default function AllocationPieChart({ data }: AllocationPieChartProps) {
           <Tooltip
             formatter={(value, name) => `${value}%`}
             contentStyle={{ maxWidth: 200 }}
-            labelFormatter={(label) => `${label} (${chartData.find(d => d.name === label)?.balance?.toLocaleString(undefined, { style: 'currency', currency: 'USD' })} | APY: ${chartData.find(d => d.name === label)?.apy?.toFixed(2)}%`)}
+            labelFormatter={formatTooltipLabel}
           />
           <Legend verticalAlign="bottom" height={36} />
         </PieChart>

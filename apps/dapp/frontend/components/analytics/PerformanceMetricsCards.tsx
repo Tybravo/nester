@@ -75,3 +75,4 @@ export default function PerformanceMetricsCards({ data }: PerformanceMetricsCard
     </div>
   );
 }
+export { PerformanceMetricsCards };
