@@ -70,15 +70,15 @@ func (r *ContractReader) SourceAPYBPS(ctx context.Context, registryAddress, prot
 	if err != nil {
 		return 0, err
 	}
-
-	// SourcePerformance struct — first field is current_apy_bps (u32).
-	if val == nil || val.Type != xdr.ScValTypeScvMap {
+	if val.Type != xdr.ScValTypeScvMap {
 		return 0, fmt.Errorf("unexpected get_source_performance return type")
 	}
-	for _, entry := range val.Map {
-		if entry.Key.Type == xdr.ScValTypeScvSymbol && entry.Key.Sym != nil && string(*entry.Key.Sym) == "current_apy_bps" {
-			if entry.Val.Type == xdr.ScValTypeScvU32 && entry.Val.U32 != nil {
-				return uint32(*entry.Val.U32), nil
+
+	scMap := val.MustMap()
+	for _, entry := range *scMap {
+		if entry.Key.Type == xdr.ScValTypeScvSymbol && string(entry.Key.MustSym()) == "current_apy_bps" {
+			if entry.Val.Type == xdr.ScValTypeScvU32 {
+				return entry.Val.MustU32(), nil
 			}
 		}
 	}
@@ -94,18 +94,19 @@ func (r *ContractReader) simulateI128(ctx context.Context, contractAddress, func
 	if err != nil {
 		return 0, err
 	}
-	if val == nil || val.Type != xdr.ScValTypeScvI128 || val.I128 == nil {
+	if val.Type != xdr.ScValTypeScvI128 {
 		return 0, fmt.Errorf("expected i128 return from %s", functionName)
 	}
-	hi := int64(val.I128.Hi)
-	lo := int64(val.I128.Lo)
+	parts := val.MustI128()
+	hi := int64(parts.Hi)
+	lo := int64(parts.Lo)
 	if hi < 0 {
 		return (hi << 64) | int64(uint64(lo)), nil
 	}
 	return (hi << 64) + lo, nil
 }
 
-func (r *ContractReader) simulate(ctx context.Context, contractScAddr xdr.ScAddress, functionName string, args []xdr.ScVal) (*xdr.ScVal, error) {
+func (r *ContractReader) simulate(ctx context.Context, contractScAddr xdr.ScAddress, functionName string, args []xdr.ScVal) (xdr.ScVal, error) {
 	hostFn := xdr.HostFunction{
 		Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
 		InvokeContract: &xdr.InvokeContractArgs{
@@ -124,33 +125,33 @@ func (r *ContractReader) simulate(ctx context.Context, contractScAddr xdr.ScAddr
 		Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(300)},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("build simulate tx: %w", err)
+		return xdr.ScVal{}, fmt.Errorf("build simulate tx: %w", err)
 	}
 
 	txB64, err := tx.Base64()
 	if err != nil {
-		return nil, fmt.Errorf("encode simulate tx: %w", err)
+		return xdr.ScVal{}, fmt.Errorf("encode simulate tx: %w", err)
 	}
 
 	var resp rpcResponse[simulateResultExtended]
 	if err := r.rpcCall(ctx, "simulateTransaction", simulateParams{Transaction: txB64}, &resp); err != nil {
-		return nil, err
+		return xdr.ScVal{}, err
 	}
 	if resp.Error != nil {
-		return nil, fmt.Errorf("%w: %s", ErrSimulateFailed, resp.Error.Message)
+		return xdr.ScVal{}, fmt.Errorf("%w: %s", ErrSimulateFailed, resp.Error.Message)
 	}
 	if resp.Result.Error != "" {
-		return nil, fmt.Errorf("%w: %s", ErrSimulateFailed, resp.Result.Error)
+		return xdr.ScVal{}, fmt.Errorf("%w: %s", ErrSimulateFailed, resp.Result.Error)
 	}
 	if resp.Result.ReturnValue == "" {
-		return nil, fmt.Errorf("%w: empty return value from %s", ErrSimulateFailed, functionName)
+		return xdr.ScVal{}, fmt.Errorf("%w: empty return value from %s", ErrSimulateFailed, functionName)
 	}
 
 	var val xdr.ScVal
 	if err := xdr.SafeUnmarshalBase64(resp.Result.ReturnValue, &val); err != nil {
-		return nil, fmt.Errorf("decode return value: %w", err)
+		return xdr.ScVal{}, fmt.Errorf("decode return value: %w", err)
 	}
-	return &val, nil
+	return val, nil
 }
 
 type simulateResultExtended struct {

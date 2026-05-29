@@ -7,8 +7,8 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from typing import Any, Literal, cast
 
-import anthropic
 import aiohttp
+import anthropic
 
 from app.config import settings
 from app.services.conversation_store import store as conversation_store
@@ -95,7 +95,9 @@ def _cache_set(user_id: str, context: dict[str, Any]) -> None:
     _mem_context_cache[user_id] = (context, time.monotonic() + _CONTEXT_CACHE_TTL)
 
 
-async def fetch_user_context(user_id: str, api_base_url: str, service_api_key: str) -> dict[str, Any]:
+async def fetch_user_context(
+    user_id: str, api_base_url: str, service_api_key: str,
+) -> dict[str, Any]:
     """Fetch user vaults, balances, allocations, and recent APY snapshots.
 
     Returns a dict with 'vaults', 'performance', and 'fetched_at'.
@@ -274,7 +276,8 @@ portfolio."""
             {
                 "role": "user",
                 "content": (
-                    "[PORTFOLIO CONTEXT — do not quote this back, use it to personalise your response]\n"
+                    "[PORTFOLIO CONTEXT — do not quote this back, "
+                    "use it to personalise your response]\n"
                     + json.dumps(user_context, indent=2)
                 ),
             }
