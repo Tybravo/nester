@@ -250,6 +250,12 @@ func (h *VaultHandler) depositToVault(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate asset code
+	if err := validateCurrencyCode(request.Asset); err != nil {
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("invalid asset: "+err.Error()))
+		return
+	}
+
 	// Verify vault ownership
 	vault, err := h.service.GetVault(r.Context(), vaultID)
 	if err != nil {
@@ -305,6 +311,12 @@ func (h *VaultHandler) withdrawFromVault(w http.ResponseWriter, r *http.Request)
 	// Validate amount is positive
 	if amount.IsNegative() || amount.IsZero() {
 		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("amount must be greater than zero"))
+		return
+	}
+
+	// Validate asset code
+	if err := validateCurrencyCode(request.Asset); err != nil {
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("invalid asset: "+err.Error()))
 		return
 	}
 
