@@ -831,11 +831,24 @@ impl VaultContract {
         let strategy = get_allocation_strategy(&env);
         let current = current_allocations_vec(&env);
 
+        // Rebalance only redistributes capital already deployed to sources.
+        // Passing the deployed sum ensures delta conservation (sum == 0) in
+        // the allocation strategy; undeployed vault buffer is not touched.
+        let mut deployed_total: i128 = 0;
+        for a in current.iter() {
+            deployed_total = deployed_total
+                .checked_add(a.amount)
+                .unwrap_or_else(|| panic_with_error!(&env, ContractError::ArithmeticOverflow));
+        }
+        if deployed_total <= 0 {
+            panic_with_error!(&env, ContractError::InvalidAmount);
+        }
+
         // Fetch deltas from the allocation strategy.
         let deltas: Vec<AllocationDeltaView> = env.invoke_contract(
             &strategy,
             &Symbol::new(&env, "calculate_rebalance_deltas"),
-            (current, total_assets).into_val(&env),
+            (current, deployed_total).into_val(&env),
         );
 
         // Apply each delta to source-allocation bookkeeping. Min-rebalance
