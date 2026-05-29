@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 	"github.com/suncrestlabs/nester/apps/api/internal/auth"
 	"github.com/suncrestlabs/nester/apps/api/internal/domain/vault"
 	"github.com/suncrestlabs/nester/apps/api/internal/service"
@@ -29,6 +30,16 @@ type createVaultRequest struct {
 	Status          string `json:"status,omitempty"`
 }
 
+type depositRequest struct {
+	Amount string `json:"amount"`
+	Asset  string `json:"asset"`
+}
+
+type withdrawRequest struct {
+	Amount string `json:"amount"`
+	Asset  string `json:"asset"`
+}
+
 func NewVaultHandler(service *service.VaultService) *VaultHandler {
 	return &VaultHandler{service: service}
 }
@@ -39,6 +50,8 @@ func (h *VaultHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/vaults/{id}/allocations", h.getAllocations)
 	mux.HandleFunc("GET /api/v1/vaults", h.listUserVaults)
 	mux.HandleFunc("GET /api/v1/vaults/all", h.listVaults)
+	mux.HandleFunc("POST /api/v1/vaults/{id}/deposit", h.depositToVault)
+	mux.HandleFunc("POST /api/v1/vaults/{id}/withdraw", h.withdrawFromVault)
 }
 
 func (h *VaultHandler) createVault(w http.ResponseWriter, r *http.Request) {
@@ -205,6 +218,122 @@ func (h *VaultHandler) getAllocations(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, http.StatusOK, response.OK(v.Allocations))
 }
 
+func (h *VaultHandler) depositToVault(w http.ResponseWriter, r *http.Request) {
+	vaultID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("vault id must be a valid UUID"))
+		return
+	}
+
+	user, ok := auth.GetUserFromContext(r.Context())
+	if !ok {
+		response.WriteJSON(w, http.StatusUnauthorized, response.Err(http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized"))
+		return
+	}
+
+	var request depositRequest
+	if err := decodeJSON(r, &request); err != nil {
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr(err.Error()))
+		return
+	}
+
+	// Parse amount string to decimal
+	amount, err := stringToDecimal(request.Amount)
+	if err != nil {
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("invalid amount: must be a valid decimal number"))
+		return
+	}
+
+	// Validate amount is positive
+	if amount.IsNegative() || amount.IsZero() {
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("amount must be greater than zero"))
+		return
+	}
+
+	// Verify vault ownership
+	vault, err := h.service.GetVault(r.Context(), vaultID)
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+
+	if vault.UserID.String() != user.ID {
+		response.WriteJSON(w, http.StatusForbidden, response.Err(http.StatusForbidden, "FORBIDDEN", "forbidden"))
+		return
+	}
+
+	// Record deposit
+	updatedVault, err := h.service.RecordDeposit(r.Context(), service.RecordDepositInput{
+		VaultID: vaultID,
+		Amount:  amount,
+		TxHash:  "", // TxHash would be set by the on-chain invoker or blockchain confirmation listener
+	})
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusCreated, response.Created(updatedVault))
+}
+
+func (h *VaultHandler) withdrawFromVault(w http.ResponseWriter, r *http.Request) {
+	vaultID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("vault id must be a valid UUID"))
+		return
+	}
+
+	user, ok := auth.GetUserFromContext(r.Context())
+	if !ok {
+		response.WriteJSON(w, http.StatusUnauthorized, response.Err(http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized"))
+		return
+	}
+
+	var request withdrawRequest
+	if err := decodeJSON(r, &request); err != nil {
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr(err.Error()))
+		return
+	}
+
+	// Parse amount string to decimal
+	amount, err := stringToDecimal(request.Amount)
+	if err != nil {
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("invalid amount: must be a valid decimal number"))
+		return
+	}
+
+	// Validate amount is positive
+	if amount.IsNegative() || amount.IsZero() {
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("amount must be greater than zero"))
+		return
+	}
+
+	// Verify vault ownership
+	vault, err := h.service.GetVault(r.Context(), vaultID)
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+
+	if vault.UserID.String() != user.ID {
+		response.WriteJSON(w, http.StatusForbidden, response.Err(http.StatusForbidden, "FORBIDDEN", "forbidden"))
+		return
+	}
+
+	// Record withdrawal
+	updatedVault, err := h.service.RecordWithdrawal(r.Context(), service.RecordWithdrawalInput{
+		VaultID: vaultID,
+		Amount:  amount,
+		TxHash:  "", // TxHash would be set by the on-chain invoker or blockchain confirmation listener
+	})
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, response.OK(updatedVault))
+}
+
 func (h *VaultHandler) writeDomainError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, vault.ErrVaultNotFound):
@@ -267,4 +396,10 @@ func isAlpha(s string) bool {
 		}
 	}
 	return len(s) > 0
+}
+
+// stringToDecimal converts a string to a decimal.Decimal value
+func stringToDecimal(s string) (decimal.Decimal, error) {
+	s = strings.TrimSpace(s)
+	return decimal.NewFromString(s)
 }
