@@ -559,3 +559,187 @@ fn pure_floor_division_truncates() {
     // 1 share of 3 supply backed by 10 assets → floor(10/3) = 3
     assert_eq!(crate::amount_for_shares_math(1, 3, 10), 3);
 }
+
+// ---------------------------------------------------------------------------
+// Authorisation: vault-only mint / burn (#51)
+// ---------------------------------------------------------------------------
+//
+// `mint_for_deposit` and `burn_for_withdrawal` go through `require_vault`,
+// which calls `vault.require_auth()`. With no mocked auths the host-level
+// auth check fails and the `try_*` client method returns an error — that is
+// the contract's "unauthorized minter rejected" guarantee.
+
+#[test]
+fn mint_for_deposit_unauthorized_caller_rejected() {
+    let env = Env::default();
+    let (client, _vault, _) = setup(&env);
+
+    env.mock_auths(&[]);
+    let user = Address::generate(&env);
+    let result = client.try_mint_for_deposit(&user, &1_000_i128);
+    assert!(result.is_err(), "non-vault caller must not be able to mint");
+}
+
+#[test]
+fn burn_for_withdrawal_unauthorized_caller_rejected() {
+    let env = Env::default();
+    let (client, _vault, _) = setup(&env);
+
+    // Seed the user with shares first (vault auth still mocked here).
+    let user = Address::generate(&env);
+    client.mint_for_deposit(&user, &1_000_i128);
+
+    env.mock_auths(&[]);
+    let result = client.try_burn_for_withdrawal(&user, &500_i128);
+    assert!(result.is_err(), "non-vault caller must not be able to burn");
+}
+
+#[test]
+fn set_total_assets_unauthorized_caller_rejected() {
+    let env = Env::default();
+    let (client, _vault, _) = setup(&env);
+
+    env.mock_auths(&[]);
+    let result = client.try_set_total_assets(&500_i128);
+    assert!(result.is_err(), "non-vault caller must not update total_assets");
+}
+
+// ---------------------------------------------------------------------------
+// Balance + supply guards (#51)
+// ---------------------------------------------------------------------------
+
+#[test]
+#[should_panic]
+fn burn_more_than_balance_panics() {
+    let env = Env::default();
+    let (client, _vault, _) = setup(&env);
+    let user = Address::generate(&env);
+    client.mint_for_deposit(&user, &100_i128);
+    // Burns more than the user holds → InsufficientBalance.
+    client.burn(&user, &200_i128);
+}
+
+#[test]
+#[should_panic]
+fn burn_from_more_than_balance_panics() {
+    let env = Env::default();
+    let (current_ledger, _) = (env.ledger().sequence(), 0);
+    let (client, _vault, _) = setup(&env);
+    let owner = Address::generate(&env);
+    let spender = Address::generate(&env);
+    client.mint_for_deposit(&owner, &100_i128);
+    client.approve(&owner, &spender, &500_i128, &(current_ledger + 1_000));
+    // Allowance permits 500, but the owner only has 100. Must panic on the
+    // balance check, not on the allowance check.
+    client.burn_from(&spender, &owner, &200_i128);
+}
+
+#[test]
+#[should_panic]
+fn transfer_more_than_balance_panics() {
+    let env = Env::default();
+    let (client, _vault, _) = setup(&env);
+    let from = Address::generate(&env);
+    let to = Address::generate(&env);
+    client.mint_for_deposit(&from, &100_i128);
+    client.transfer(&from, &to, &200_i128);
+}
+
+#[test]
+fn transfer_to_self_is_a_no_op() {
+    let env = Env::default();
+    let (client, _vault, _) = setup(&env);
+    let user = Address::generate(&env);
+    client.mint_for_deposit(&user, &1_000_i128);
+
+    let before_supply = client.total_supply();
+    client.transfer(&user, &user, &500_i128);
+
+    assert_eq!(client.balance(&user), 1_000_i128, "self-transfer must preserve balance");
+    assert_eq!(client.total_supply(), before_supply, "self-transfer must not change supply");
+}
+
+// ---------------------------------------------------------------------------
+// Allowance guards (#51)
+// ---------------------------------------------------------------------------
+
+#[test]
+#[should_panic]
+fn transfer_from_over_allowance_panics() {
+    let env = Env::default();
+    let current_ledger = env.ledger().sequence();
+    let (client, _vault, _) = setup(&env);
+    let owner = Address::generate(&env);
+    let spender = Address::generate(&env);
+    let to = Address::generate(&env);
+    client.mint_for_deposit(&owner, &1_000_i128);
+    client.approve(&owner, &spender, &100_i128, &(current_ledger + 1_000));
+    // Allowance is 100, attempted spend is 500 → must panic.
+    client.transfer_from(&spender, &owner, &to, &500_i128);
+}
+
+#[test]
+fn transfer_from_decrements_allowance() {
+    let env = Env::default();
+    let current_ledger = env.ledger().sequence();
+    let (client, _vault, _) = setup(&env);
+    let owner = Address::generate(&env);
+    let spender = Address::generate(&env);
+    let to = Address::generate(&env);
+    client.mint_for_deposit(&owner, &1_000_i128);
+    client.approve(&owner, &spender, &800_i128, &(current_ledger + 1_000));
+
+    client.transfer_from(&spender, &owner, &to, &300_i128);
+    assert_eq!(client.allowance(&owner, &spender), 500_i128, "allowance decremented");
+    assert_eq!(client.balance(&to), 300_i128);
+    assert_eq!(client.balance(&owner), 700_i128);
+}
+
+// ---------------------------------------------------------------------------
+// Total supply invariant across a full mint → transfer → burn sequence (#51)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn total_supply_invariant_across_full_sequence() {
+    let env = Env::default();
+    let (client, _vault, _) = setup(&env);
+
+    let a = Address::generate(&env);
+    let b = Address::generate(&env);
+
+    // 1. Mint 1_000 to A.
+    client.mint_for_deposit(&a, &1_000_i128);
+    assert_eq!(client.balance(&a), 1_000_i128);
+    assert_eq!(client.balance(&b), 0_i128);
+    assert_eq!(client.total_supply(), 1_000_i128);
+    assert_eq!(client.total_supply(), client.balance(&a) + client.balance(&b));
+
+    // 2. Transfer 400 A → B. Supply unchanged.
+    client.transfer(&a, &b, &400_i128);
+    assert_eq!(client.balance(&a), 600_i128);
+    assert_eq!(client.balance(&b), 400_i128);
+    assert_eq!(client.total_supply(), 1_000_i128, "supply must not change on transfer");
+    assert_eq!(client.total_supply(), client.balance(&a) + client.balance(&b));
+
+    // 3. Burn 100 from A's own balance. Supply decreases by 100.
+    client.burn(&a, &100_i128);
+    assert_eq!(client.balance(&a), 500_i128);
+    assert_eq!(client.balance(&b), 400_i128);
+    assert_eq!(client.total_supply(), 900_i128);
+    assert_eq!(client.total_supply(), client.balance(&a) + client.balance(&b));
+
+    // 4. Burn the rest via burn_for_withdrawal. Supply → 0.
+    client.burn_for_withdrawal(&a, &500_i128);
+    client.burn_for_withdrawal(&b, &400_i128);
+    assert_eq!(client.balance(&a), 0_i128);
+    assert_eq!(client.balance(&b), 0_i128);
+    assert_eq!(client.total_supply(), 0_i128);
+}
+
+#[test]
+fn balance_of_unfunded_account_is_zero() {
+    let env = Env::default();
+    let (client, _vault, _) = setup(&env);
+    let stranger = Address::generate(&env);
+    assert_eq!(client.balance(&stranger), 0_i128);
+}
