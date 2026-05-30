@@ -30,6 +30,14 @@ func (s *SorobanVaultChainInvoker) UnpauseVault(ctx context.Context, contractAdd
 	return s.invoker.InvokeVoidFunction(ctx, contractAddress, "unpause")
 }
 
+func (s *SorobanVaultChainInvoker) RebalanceVault(ctx context.Context, contractAddress string) (string, error) {
+	return s.invoker.InvokeVoidFunctionSubmit(ctx, contractAddress, "rebalance")
+}
+
+func (s *SorobanVaultChainInvoker) SimulateRebalanceVault(ctx context.Context, contractAddress string) error {
+	return s.invoker.SimulateVoidFunction(ctx, contractAddress, "rebalance")
+}
+
 func (s *SorobanVaultChainInvoker) SetAllocationWeights(
 	ctx context.Context,
 	strategyContractAddress string,
