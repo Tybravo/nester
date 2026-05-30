@@ -38,6 +38,7 @@ type adminService interface {
 	TriggerRebalance(ctx context.Context, id uuid.UUID, req admindomain.RebalanceRequest) (admindomain.RebalanceResponse, error)
 	ListSettlements(ctx context.Context, filter admindomain.SettlementListFilter) ([]admindomain.SettlementSummary, int, error)
 	ListUsers(ctx context.Context, filter admindomain.UserListFilter) ([]admindomain.UserSummary, int, error)
+	ListVaultRebalances(ctx context.Context, vaultID uuid.UUID) ([]admindomain.VaultRebalanceRecord, error)
 	GetDetailedHealth(ctx context.Context) (admindomain.DetailedHealth, error)
 }
 
@@ -74,6 +75,7 @@ func (h *AdminHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/admin/vaults/{id}/pause", h.pauseVault)
 	mux.HandleFunc("POST /api/v1/admin/vaults/{id}/unpause", h.unpauseVault)
 	mux.HandleFunc("POST /api/v1/admin/vaults/{id}/rebalance", h.rebalanceVault)
+	mux.HandleFunc("GET /api/v1/vaults/{id}/rebalance-history", h.getRebalanceHistory)
 	mux.HandleFunc("POST /api/v1/admin/vaults/{id}/allocations", h.createAllocation)
 	mux.HandleFunc("PATCH /api/v1/admin/vaults/{id}/allocations/{alloc_id}", h.updateAllocation)
 	mux.HandleFunc("DELETE /api/v1/admin/vaults/{id}/allocations/{alloc_id}", h.deleteAllocation)
@@ -211,6 +213,21 @@ func (h *AdminHandler) rebalanceVault(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.WriteJSON(w, http.StatusOK, response.OK(result))
+}
+
+func (h *AdminHandler) getRebalanceHistory(w http.ResponseWriter, r *http.Request) {
+	vaultID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("vault id must be a valid UUID"))
+		return
+	}
+
+	history, err := h.service.ListVaultRebalances(r.Context(), vaultID)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, response.OK(history))
 }
 
 type createAllocationRequest struct {

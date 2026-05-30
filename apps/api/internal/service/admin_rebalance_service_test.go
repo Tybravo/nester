@@ -69,6 +69,9 @@ func (r *rebalanceAdminRepo) UpdateVaultRebalance(_ context.Context, record admi
 	r.records = append(r.records, record)
 	return record, nil
 }
+func (r *rebalanceAdminRepo) ListVaultRebalances(context.Context, uuid.UUID) ([]admindomain.VaultRebalanceRecord, error) {
+	return append([]admindomain.VaultRebalanceRecord{}, r.records...), nil
+}
 
 type rebalanceChainInvoker struct {
 	simulateErr error

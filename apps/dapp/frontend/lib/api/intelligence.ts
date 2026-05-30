@@ -8,6 +8,34 @@ export interface VaultRecommendation {
   confidence: number       // 0–1
 }
 
+export interface VaultSplitRecommendation {
+  vault_id: string
+  allocation_pct: number
+  rationale: string
+}
+
+export interface VaultRecommendationPlan {
+  recommended_vaults: VaultSplitRecommendation[]
+  expected_yield_usdc: number
+  confidence: 'high' | 'medium' | 'low'
+}
+
+export interface AnalyzeRecommendation {
+  action: string
+  rationale: string
+  confidence: 'high' | 'medium' | 'low'
+  confidence_reason: string
+  data_freshness: string
+  disclaimer: string
+}
+
+export interface VaultRecommendationInput {
+  risk_tolerance: 'conservative' | 'moderate' | 'aggressive'
+  time_horizon_months: number
+  initial_deposit_usdc: number
+  savings_goal?: string
+}
+
 export interface MarketSentiment {
   signal: 'bull' | 'bear' | 'neutral'
   summary: string
@@ -56,6 +84,18 @@ export const intelligence = {
   /** Portfolio-level insight cards for a given user. */
   getPortfolioInsights: (userId: string) =>
     apiFetch<PortfolioInsight[]>(`/portfolio/${userId}/insights`),
+
+  recommendVault: (input: VaultRecommendationInput) =>
+    apiFetch<VaultRecommendationPlan>('/recommend/vault', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  analyze: (prompt: string) =>
+    apiFetch<AnalyzeRecommendation>('/analyze', {
+      method: 'POST',
+      body: JSON.stringify({ prompt }),
+    }),
 
   sendMessage: (userId: string, message: string): EventSource => {
     const params = new URLSearchParams({ userId, message })

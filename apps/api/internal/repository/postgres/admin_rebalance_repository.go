@@ -97,6 +97,54 @@ func (r *AdminRepository) UpdateVaultRebalance(
 	return scanVaultRebalance(row)
 }
 
+func (r *AdminRepository) ListVaultRebalances(ctx context.Context, vaultID uuid.UUID) ([]admindomain.VaultRebalanceRecord, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, vault_id, strategy, dry_run, status, tx_hash, projected_deltas, error_message, created_at, updated_at
+		FROM vault_rebalances
+		WHERE vault_id = $1
+		ORDER BY created_at DESC
+	`, vaultID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]admindomain.VaultRebalanceRecord, 0)
+	for rows.Next() {
+		var out admindomain.VaultRebalanceRecord
+		var txHash, errMsg sql.NullString
+		var deltas []byte
+		if err := rows.Scan(
+			&out.ID,
+			&out.VaultID,
+			&out.Strategy,
+			&out.DryRun,
+			&out.Status,
+			&txHash,
+			&deltas,
+			&errMsg,
+			&out.CreatedAt,
+			&out.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if txHash.Valid {
+			out.TxHash = &txHash.String
+		}
+		if errMsg.Valid {
+			out.ErrorMessage = &errMsg.String
+		}
+		if len(deltas) > 0 {
+			out.ProjectedDeltas = deltas
+		}
+		items = append(items, out)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 func scanVaultRebalance(row *sql.Row) (admindomain.VaultRebalanceRecord, error) {
 	var out admindomain.VaultRebalanceRecord
 	var txHash, errMsg sql.NullString

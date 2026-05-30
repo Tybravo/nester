@@ -262,6 +262,13 @@ func (s *AdminService) ListUsers(
 	return s.repository.ListUsers(ctx, filter)
 }
 
+func (s *AdminService) ListVaultRebalances(ctx context.Context, vaultID uuid.UUID) ([]admindomain.VaultRebalanceRecord, error) {
+	if vaultID == uuid.Nil {
+		return nil, ErrInvalidAdminInput
+	}
+	return s.repository.ListVaultRebalances(ctx, vaultID)
+}
+
 func (s *AdminService) GetDetailedHealth(ctx context.Context) (admindomain.DetailedHealth, error) {
 	database := s.checkDatabase(ctx)
 	stellar := s.checkHTTPDependency(ctx, s.stellarHorizonURL, "stellar horizon")

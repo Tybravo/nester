@@ -167,4 +167,5 @@ type Repository interface {
 	CreateVaultRebalance(ctx context.Context, record VaultRebalanceRecord) (VaultRebalanceRecord, error)
 	UpdateVaultRebalance(ctx context.Context, record VaultRebalanceRecord) (VaultRebalanceRecord, error)
 	HasInFlightRebalance(ctx context.Context, vaultID uuid.UUID) (bool, error)
+	ListVaultRebalances(ctx context.Context, vaultID uuid.UUID) ([]VaultRebalanceRecord, error)
 }
