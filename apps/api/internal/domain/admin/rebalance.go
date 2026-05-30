@@ -42,14 +42,14 @@ type RebalanceResponse struct {
 
 // VaultRebalanceRecord is the persisted audit row for a rebalance attempt.
 type VaultRebalanceRecord struct {
-	ID               uuid.UUID
-	VaultID          uuid.UUID
-	Strategy         string
-	DryRun           bool
-	Status           string
-	TxHash           *string
-	ProjectedDeltas  json.RawMessage
-	ErrorMessage     *string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID              uuid.UUID       `json:"id"`
+	VaultID         uuid.UUID       `json:"vault_id"`
+	Strategy        string          `json:"strategy"`
+	DryRun          bool            `json:"dry_run"`
+	Status          string          `json:"status"`
+	TxHash          *string         `json:"tx_hash,omitempty"`
+	ProjectedDeltas json.RawMessage  `json:"projected_deltas,omitempty"`
+	ErrorMessage    *string         `json:"error_message,omitempty"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
 }

@@ -221,6 +221,10 @@ func (s *adminHandlerStubService) ListUsers(context.Context, admindomain.UserLis
 	return s.users, len(s.users), nil
 }
 
+func (s *adminHandlerStubService) ListVaultRebalances(context.Context, uuid.UUID) ([]admindomain.VaultRebalanceRecord, error) {
+	return []admindomain.VaultRebalanceRecord{}, nil
+}
+
 func (s *adminHandlerStubService) GetDetailedHealth(context.Context) (admindomain.DetailedHealth, error) {
 	return s.health, nil
 }
@@ -594,6 +598,9 @@ func (adminErrStub) ListSettlements(context.Context, admindomain.SettlementListF
 }
 func (adminErrStub) ListUsers(context.Context, admindomain.UserListFilter) ([]admindomain.UserSummary, int, error) {
 	return nil, 0, nil
+}
+func (adminErrStub) ListVaultRebalances(context.Context, uuid.UUID) ([]admindomain.VaultRebalanceRecord, error) {
+	return nil, nil
 }
 func (adminErrStub) GetDetailedHealth(context.Context) (admindomain.DetailedHealth, error) {
 	return admindomain.DetailedHealth{}, nil

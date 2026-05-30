@@ -49,6 +49,9 @@ func (r *allocationAdminRepository) CreateVaultRebalance(context.Context, admind
 func (r *allocationAdminRepository) UpdateVaultRebalance(context.Context, admindomain.VaultRebalanceRecord) (admindomain.VaultRebalanceRecord, error) {
 	return admindomain.VaultRebalanceRecord{}, nil
 }
+func (r *allocationAdminRepository) ListVaultRebalances(context.Context, uuid.UUID) ([]admindomain.VaultRebalanceRecord, error) {
+	return nil, nil
+}
 
 type allocationVaultRepository struct {
 	allocations []vault.Allocation
