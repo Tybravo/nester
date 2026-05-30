@@ -96,20 +96,20 @@ class SavingsService:
         )
 
     async def _generate_narrative(self, request: SavingsPlanRequest, apy: float, required_deposit: float, achievable: bool, total_yield: float) -> str:
-        prompt = f"""
-        You are Prometheus, a DeFi-savvy financial advisor. 
-        A user wants to save ${request.goal_usdc} in {request.time_horizon_months} months.
-        Their maximum monthly contribution is ${request.max_monthly_contribution_usdc}.
-        The current applicable APY is {apy*100:.2f}%.
-        The calculated required monthly deposit is ${required_deposit:.2f}.
-        The goal is {'achievable' if achievable else 'NOT achievable'} within their stated contribution limit.
-        The total yield they will earn is ${total_yield:.2f}.
-
-        Provide a concise, encouraging narrative (2-3 sentences) explaining the plan.
-        If it's achievable, highlight the power of compound interest and the yield they'll earn.
-        If it's NOT achievable, suggest adjusting the time horizon, increasing the monthly contribution, or seeking a higher yield vault (while mentioning risk).
-        Keep it professional yet conversational.
-        """
+        status_text = "achievable" if achievable else "NOT achievable"
+        prompt = (
+            "You are Prometheus, a DeFi-savvy financial advisor.\n"
+            f"A user wants to save ${request.goal_usdc} in {request.time_horizon_months} months.\n"
+            f"Their maximum monthly contribution is ${request.max_monthly_contribution_usdc}.\n"
+            f"The current applicable APY is {apy*100:.2f}%.\n"
+            f"The calculated required monthly deposit is ${required_deposit:.2f}.\n"
+            f"The goal is {status_text} within their stated contribution limit.\n"
+            f"The total yield they will earn is ${total_yield:.2f}.\n\n"
+            "Provide a concise, encouraging narrative (2-3 sentences) explaining the plan.\n"
+            "If it's achievable, highlight the power of compound interest and the yield they'll earn.\n"
+            "If it's NOT achievable, suggest adjusting the time horizon, increasing the monthly contribution, or seeking a higher yield vault (while mentioning risk).\n"
+            "Keep it professional yet conversational."
+        )
 
         try:
             response = anthropic_client.messages.create(

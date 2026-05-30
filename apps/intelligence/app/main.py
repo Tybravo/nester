@@ -2,6 +2,7 @@ import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from typing import Optional
 
 from fastapi import FastAPI, Request, Response
 from slowapi import Limiter, _rate_limit_exceeded_handler

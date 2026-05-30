@@ -911,7 +911,7 @@ function SavingsOverview() {
             if (projection && projection.timeline) {
                 const projPoints = projection.timeline.slice(1, 30).map(p => ({
                     date: new Date(p.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-                    actualBalance: undefined as any,
+                    actualBalance: undefined,
                     projectedBalance: p.balance,
                 }));
                 setChartData([...points, ...projPoints]);
@@ -976,14 +976,7 @@ function SavingsOverview() {
     const daysSaving = Math.max(1, Math.ceil((Date.now() - firstDeposit) / 86400000));
     const effectiveApy = totalPrincipal > 0 ? (totalYield / totalPrincipal) * (365 / daysSaving) * 100 : 0;
 
-    const stats = [
-        { label: "Total Deposited", value: `$${totalPrincipal.toLocaleString()}`, icon: ArrowDownLeft, sub: "Principal" },
-        { label: "Yield Earned", value: `+$${totalYield.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, icon: Zap, sub: "Total profit" },
-        { label: "Effective APY", value: `${effectiveApy.toFixed(1)}%`, icon: Activity, sub: "Annualised" },
-        { label: "Days Saving", value: String(daysSaving), icon: Clock, sub: "Since first deposit" },
-    ];
-
-    const ArrowDownLeft = ({ className }: { className?: string }) => (
+    const ArrowDownLeftIcon = ({ className }: { className?: string }) => (
         <svg 
             xmlns="http://www.w3.org/2000/svg" 
             width="24" 
@@ -1001,6 +994,13 @@ function SavingsOverview() {
             <polyline points="17 17 7 17 7 7"></polyline>
         </svg>
     );
+
+    const stats = [
+        { label: "Total Deposited", value: `$${totalPrincipal.toLocaleString()}`, icon: ArrowDownLeftIcon, sub: "Principal" },
+        { label: "Yield Earned", value: `+$${totalYield.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, icon: Zap, sub: "Total profit" },
+        { label: "Effective APY", value: `${effectiveApy.toFixed(1)}%`, icon: Activity, sub: "Annualised" },
+        { label: "Days Saving", value: String(daysSaving), icon: Clock, sub: "Since first deposit" },
+    ];
 
     return (
         <div className="mb-10 space-y-6">
@@ -1063,25 +1063,6 @@ const FILTERS: { label: string; value: SavingsVaultType | "all" }[] = [
     { label: "Stablecoin Yield", value: "stablecoin-yield" },
     { label: "Custom", value: "custom" },
 ];
-
-const ArrowDownLeft = ({ className }: { className?: string }) => (
-    <svg 
-        xmlns="http://www.w3.org/2000/svg" 
-        width="24" 
-        height="24" 
-        viewBox="0 0 24 24" 
-        fill="none" 
-        stroke="currentColor" 
-        strokeWidth="2" 
-        strokeLinecap="round" 
-        strokeLinejoin="round" 
-        className={className}
-        aria-hidden="true"
-    >
-        <line x1="17" y1="7" x2="7" y2="17"></line>
-        <polyline points="17 17 7 17 7 7"></polyline>
-    </svg>
-);
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 

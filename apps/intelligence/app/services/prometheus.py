@@ -5,7 +5,7 @@ import logging
 import time
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
-from typing import Any, Literal, cast
+from typing import Any, Literal, cast, Union, Optional
 
 import anthropic
 import aiohttp
@@ -24,8 +24,8 @@ ANALYZE_MAX_TOKENS = 800
 _CONTEXT_CACHE_TTL = 60  # seconds
 _CONTEXT_KEY_PREFIX = "prometheus:ctx:"
 
-_client: anthropic.AsyncAnthropic | None = None
-_vault_context_fetcher: VaultContextFetcher | None = None
+_client: Optional[anthropic.AsyncAnthropic] = None
+_vault_context_fetcher: Optional[VaultContextFetcher] = None
 _redis_client: Any = None
 _redis_available: bool = False
 
@@ -67,7 +67,7 @@ def _get_redis() -> Any:
     return _redis_client if _redis_available else None
 
 
-def _cache_get(user_id: str) -> dict[str, Any] | None:
+def _cache_get(user_id: str) -> Optional[dict[str, Any]]:
     key = _CONTEXT_KEY_PREFIX + user_id
     r = _get_redis()
     if r is not None:
@@ -133,7 +133,7 @@ async def fetch_user_context(user_id: str, api_base_url: str, service_api_key: s
     }
 
 
-async def _get_cached_user_context(user_id: str) -> dict[str, Any] | None:
+async def _get_cached_user_context(user_id: str) -> Optional[dict[str, Any]]:
     """Return cached user context, or fetch and cache it. Returns None on failure."""
     cached = _cache_get(user_id)
     if cached is not None:

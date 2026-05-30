@@ -9,9 +9,43 @@ import { AllocationPieChart } from "@/components/analytics/AllocationPieChart";
 import { YieldBreakdownChart } from "@/components/analytics/YieldBreakdownChart";
 import { PerformanceMetricsCards } from "@/components/analytics/PerformanceMetricsCards";
 
+interface AnalyticsData {
+  daily_snapshots: {
+    date: string;
+    total_value_usd: number;
+    yield_usd: number;
+  }[];
+  vault_monthly_yield: {
+    vault_id: string;
+    vault_name: string;
+    month: string;
+    yield_usd: number;
+  }[];
+  current_allocation: {
+    vault_id: string;
+    vault_name: string;
+    value_usd: number;
+    percentage: number;
+  }[];
+  performance_metrics: {
+    average_apy: number;
+    total_yield_usd: number;
+    sharpe_ratio: number;
+    sortino_ratio: number;
+    max_drawdown: number;
+  };
+  vaults: {
+    id: string;
+    name: string;
+    apy: number;
+    tvl: number;
+    risk_score: number;
+  }[];
+}
+
 export default function AnalyticsPage() {
   const { data: session } = useSession();
-  const [analyticsData, setAnalyticsData] = useState<any>(null);
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<string>("30"); // default 30 days

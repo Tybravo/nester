@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Request
 
@@ -9,7 +9,7 @@ from app.services.savings_service import savings_service
 
 router = APIRouter(dependencies=[Depends(verify_jwt)])
 
-@router.get("/savings-plan", response_model=SavingsPlan | None)
+@router.get("/savings-plan", response_model=Optional[SavingsPlan])
 async def get_savings_plan(
     request: Request,
     claims: dict[str, Any] = Depends(verify_jwt),

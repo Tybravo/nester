@@ -2,12 +2,25 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { RiskGaugeChart, RiskDimensionsTable } from "./risk-components";
 
+interface RiskDimension {
+  name: string;
+  score: number;
+  description: string;
+}
+
+interface RiskData {
+  score: number;
+  level: string;
+  dimensions: RiskDimension[];
+  [key: string]: string | number | RiskDimension[] | undefined;
+}
+
 interface RiskGaugeProps {
   vaultId: string;
 }
 
 export default function RiskGauge({ vaultId }: RiskGaugeProps) {
-  const [riskData, setRiskData] = useState<any>(null);
+  const [riskData, setRiskData] = useState<RiskData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();

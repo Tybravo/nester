@@ -15,7 +15,7 @@ class SavingsPlan(BaseModel):
     start_date: datetime
     target_date: datetime
     status: str  # "on_track", "behind_schedule", "ahead_of_schedule"
-    next_milestone: Milestone | None
+    next_milestone: Optional[Milestone]
 
 class SavingsPlanRequest(BaseModel):
     goal_usdc: float
