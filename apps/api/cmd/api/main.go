@@ -115,6 +115,8 @@ func run() error {
 	userRepository := postgres.NewUserRepository(db)
 	userService := service.NewUserService(userRepository)
 	userHandler := handler.NewUserHandler(userService)
+	userVaultsSvc := service.NewUserVaultsService(vaultRepository)
+	userHandler.SetUserVaultsService(userVaultsSvc)
 
 	adminRepository := postgres.NewAdminRepository(db)
 
@@ -277,6 +279,38 @@ func run() error {
 	watchlistHandler := handler.NewWatchlistHandler(watchlistSvc)
 	watchlistHandler.Register(mux)
 
+	// Savings goals
+	savingsGoalRepo := postgres.NewSavingsGoalRepository(db)
+	savingsGoalSvc := service.NewSavingsGoalService(savingsGoalRepo)
+	savingsGoalHandler := handler.NewSavingsGoalHandler(savingsGoalSvc)
+	savingsGoalHandler.Register(mux)
+
+	// User vault rebalance (suggestions + execution)
+	vaultRebalanceSvc := service.NewVaultRebalanceService(vaultRepository, adminService)
+	vaultHandler.SetRebalanceService(vaultRebalanceSvc)
+
+	// Intelligence proxy (forwards to Python service)
+	intelURL := cfg.Intelligence().ServiceURL()
+	intelProxy := service.NewIntelligenceProxy(intelURL, cfg.Intelligence().Timeout())
+	prometheusClient := service.NewPrometheusClient(service.PrometheusConfig{
+		BaseURL: intelURL,
+		APIKey:  cfg.Auth().ServiceAPIKey(),
+		Timeout: cfg.Intelligence().Timeout(),
+	})
+	intelligenceHandler := handler.NewIntelligenceHandler(intelProxy, prometheusClient)
+	intelligenceHandler.Register(mux)
+
+	intelRelay := service.NewRelayHandler(http.DefaultClient, service.RelayConfig{
+		BaseURL: intelURL,
+		APIKey:  cfg.Auth().ServiceAPIKey(),
+		Timeout: cfg.Intelligence().Timeout(),
+	})
+	intelligenceRelayHandler := handler.NewIntelligenceRelayHandler(intelRelay)
+	intelligenceRelayHandler.Register(mux)
+
+	performanceSnapshotsHandler := handler.NewPerformanceSnapshotsHandler(performanceService)
+	performanceSnapshotsHandler.Register(mux)
+
 	bankHandler.Register(mux)
 
 	mux.HandleFunc("GET /ws", wsHub.ServeWs)
@@ -291,7 +325,7 @@ func run() error {
 		{PathPrefix: "/api/v1/admin/", Public: false, Role: "admin"},
 		{PathPrefix: "/api/v1/", Public: false},
 	}
-	authenticator := middleware.Authenticate(cfg.Auth().Secret(), authRules)
+	authenticator := middleware.Authenticate(cfg.Auth().Secret(), cfg.Auth().ServiceAPIKey(), authRules)
 	globalLimiter := middleware.IPRateLimiter(cfg.RateLimit().GlobalLimit(), cfg.RateLimit().GlobalWindow())
 	writeLimiter := middleware.WriteMethodRateLimiter(cfg.RateLimit().WriteLimit(), cfg.RateLimit().WriteWindow())
 	walletLimiter := middleware.WalletRateLimiter(

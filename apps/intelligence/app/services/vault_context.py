@@ -42,10 +42,12 @@ class VaultContextFetcher:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=headers) as response:
                     if response.status == 200:
-                        data = await response.json()
+                        payload = await response.json()
+                        data = payload.get("data", payload) if isinstance(payload, dict) else {}
+                        vault_rows = data.get("vaults", []) if isinstance(data, dict) else []
                         # Transform to expected format
                         vaults = []
-                        for vault in data.get("vaults", []):
+                        for vault in vault_rows:
                             # Calculate allocation breakdown as percentages
                             total_balance = vault.get("total_balance_usd", 0)
                             allocation_breakdown = {}
@@ -133,12 +135,23 @@ class VaultContextFetcher:
                     for vault in raw_vaults:
                         if not isinstance(vault, dict):
                             continue
+                        name = vault.get(
+                            "name",
+                            vault.get("contract_address", "Unknown Vault"),
+                        )
+                        balance = vault.get(
+                            "current_balance",
+                            vault.get("total_balance_usd", 0),
+                        )
                         vaults.append({
                             "id": vault.get("id", ""),
-                            "name": vault.get("name", vault.get("contract_address", "Unknown Vault")),
+                            "name": name,
                             "apy": vault.get("average_apy", vault.get("apy", 0)),
-                            "balance_usd": vault.get("current_balance", vault.get("total_balance_usd", 0)),
-                            "risk_tier": vault.get("risk_tier", vault.get("status", "unknown")),
+                            "balance_usd": balance,
+                            "risk_tier": vault.get(
+                                "risk_tier",
+                                vault.get("status", "unknown"),
+                            ),
                             "currency": vault.get("currency", "USDC"),
                         })
                     return vaults
