@@ -28,7 +28,7 @@ func (r *SavingsGoalRepository) Create(ctx context.Context, goal *savingsgoal.Sa
 	`
 	return r.db.QueryRowContext(
 		ctx, query,
-		goal.ID, goal.UserID, goal.TargetAmount.String(), goal.Currency, goal.Deadline, nullString(goal.Description),
+		goal.ID, goal.UserID, goal.TargetAmount.String(), goal.Currency, goal.Deadline, nullSQLString(goal.Description),
 	).Scan(&goal.CreatedAt, &goal.UpdatedAt)
 }
 
@@ -73,7 +73,7 @@ func (r *SavingsGoalRepository) Update(ctx context.Context, goal *savingsgoal.Sa
 		UPDATE savings_goals
 		SET target_amount = $1, currency = $2, deadline = $3, description = $4, updated_at = NOW()
 		WHERE id = $5 AND user_id = $6
-	`, goal.TargetAmount.String(), goal.Currency, goal.Deadline, nullString(goal.Description), goal.ID, goal.UserID)
+	`, goal.TargetAmount.String(), goal.Currency, goal.Deadline, nullSQLString(goal.Description), goal.ID, goal.UserID)
 	if err != nil {
 		return err
 	}
@@ -145,7 +145,7 @@ func scanSavingsGoal(row savingsGoalScanner) (savingsgoal.SavingsGoal, error) {
 	}, nil
 }
 
-func nullString(s string) sql.NullString {
+func nullSQLString(s string) sql.NullString {
 	if s == "" {
 		return sql.NullString{}
 	}
