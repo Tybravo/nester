@@ -189,6 +189,13 @@ function TopBar({ bannerOffset }: { bannerOffset: boolean }) {
                                                 <User className="h-3.5 w-3.5" />
                                                 Portfolio
                                             </Link>
+                                            <Link
+                                                href="/settings"
+                                                className="flex w-full items-center gap-2.5 px-4 py-2.5 text-[13px] text-black/60 transition-colors hover:bg-black/[0.03] hover:text-black"
+                                            >
+                                                <Settings className="h-3.5 w-3.5" />
+                                                Settings
+                                            </Link>
                                             <button
                                                 onClick={() => disconnect()}
                                                 className="flex w-full items-center gap-2.5 px-4 py-2.5 text-[13px] text-red-500/70 transition-colors hover:bg-red-50 hover:text-red-600"

@@ -101,6 +101,9 @@ func run() error {
 	vaultService.SetHarvestDefaultCompound(cfg.Stellar().HarvestDefaultCompound())
 	vaultHandler := handler.NewVaultHandler(vaultService)
 
+	portfolioService := service.NewPortfolioService(vaultRepository)
+	portfolioHandler := handler.NewPortfolioHandler(portfolioService)
+
 	transactionRepository := postgres.NewTransactionRepository(db)
 	transactionService := service.NewTransactionService(transactionRepository, cfg.Stellar().HorizonURL())
 	// Balance is moved only after a deposit/withdrawal is confirmed on-chain
@@ -108,15 +111,15 @@ func run() error {
 	transactionService.SetBalanceApplier(vaultRepository)
 	transactionHandler := handler.NewTransactionHandler(transactionService)
 
-	settlementRepository := postgres.NewSettlementRepository(db)
-	settlementService := service.NewSettlementService(settlementRepository)
-	settlementHandler := handler.NewSettlementHandler(settlementService)
-
 	userRepository := postgres.NewUserRepository(db)
 	userService := service.NewUserService(userRepository)
 	userHandler := handler.NewUserHandler(userService)
 	userVaultsSvc := service.NewUserVaultsService(vaultRepository)
 	userHandler.SetUserVaultsService(userVaultsSvc)
+
+	settlementRepository := postgres.NewSettlementRepository(db)
+	settlementService := service.NewSettlementService(settlementRepository)
+	settlementHandler := handler.NewSettlementHandler(settlementService, userService)
 
 	adminRepository := postgres.NewAdminRepository(db)
 
@@ -145,7 +148,7 @@ func run() error {
 		cfg.Stellar().AllocationStrategyAddress(),
 		cfg.Allocation().MinWeightPercent(),
 	)
-	adminHandler := handler.NewAdminHandler(adminService)
+	adminHandler := handler.NewAdminHandler(adminService, userService)
 	adminHandler.SetEventSyncer(&stellarpkg.EventSyncer{
 		DB:      db,
 		SysRepo: systemStateRepository,
@@ -249,6 +252,7 @@ func run() error {
 		buildVersion: version,
 	}))
 	vaultHandler.Register(mux)
+	portfolioHandler.Register(mux)
 	transactionHandler.Register(mux)
 	settlementHandler.Register(mux)
 	userHandler.Register(mux)
