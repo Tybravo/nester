@@ -5,7 +5,7 @@ extern crate std;
 use soroban_sdk::{
     contract, contractimpl,
     testutils::{Address as _, Ledger, LedgerInfo},
-    token, Address, Env, String, Symbol, Vec,
+    token, Address, Env, String, Symbol,
 };
 use nester_access_control::Role;
 use vault_token::{VaultTokenContract, VaultTokenContractClient};
