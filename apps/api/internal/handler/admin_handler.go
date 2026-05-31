@@ -2,7 +2,9 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -33,8 +35,10 @@ type adminService interface {
 	CreateAllocation(ctx context.Context, input service.CreateAllocationInput) (vault.Allocation, error)
 	UpdateAllocation(ctx context.Context, input service.UpdateAllocationInput) (vault.Allocation, error)
 	DeleteAllocation(ctx context.Context, input service.DeleteAllocationInput) error
+	TriggerRebalance(ctx context.Context, id uuid.UUID, req admindomain.RebalanceRequest) (admindomain.RebalanceResponse, error)
 	ListSettlements(ctx context.Context, filter admindomain.SettlementListFilter) ([]admindomain.SettlementSummary, int, error)
 	ListUsers(ctx context.Context, filter admindomain.UserListFilter) ([]admindomain.UserSummary, int, error)
+	ListVaultRebalances(ctx context.Context, vaultID uuid.UUID) ([]admindomain.VaultRebalanceRecord, error)
 	GetDetailedHealth(ctx context.Context) (admindomain.DetailedHealth, error)
 }
 
@@ -70,6 +74,8 @@ func (h *AdminHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/admin/vaults/{id}", h.getVaultDetail)
 	mux.HandleFunc("POST /api/v1/admin/vaults/{id}/pause", h.pauseVault)
 	mux.HandleFunc("POST /api/v1/admin/vaults/{id}/unpause", h.unpauseVault)
+	mux.HandleFunc("POST /api/v1/admin/vaults/{id}/rebalance", h.rebalanceVault)
+	mux.HandleFunc("GET /api/v1/vaults/{id}/rebalance-history", h.getRebalanceHistory)
 	mux.HandleFunc("POST /api/v1/admin/vaults/{id}/allocations", h.createAllocation)
 	mux.HandleFunc("PATCH /api/v1/admin/vaults/{id}/allocations/{alloc_id}", h.updateAllocation)
 	mux.HandleFunc("DELETE /api/v1/admin/vaults/{id}/allocations/{alloc_id}", h.deleteAllocation)
@@ -178,6 +184,50 @@ func (h *AdminHandler) unpauseVault(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.WriteJSON(w, http.StatusOK, response.OK(result))
+}
+
+func (h *AdminHandler) rebalanceVault(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("vault id must be a valid UUID"))
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodyBytes))
+	if err != nil {
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("invalid request body"))
+		return
+	}
+
+	var req admindomain.RebalanceRequest
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("request body must be valid JSON"))
+			return
+		}
+	}
+
+	result, err := h.service.TriggerRebalance(r.Context(), id, req)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, response.OK(result))
+}
+
+func (h *AdminHandler) getRebalanceHistory(w http.ResponseWriter, r *http.Request) {
+	vaultID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("vault id must be a valid UUID"))
+		return
+	}
+
+	history, err := h.service.ListVaultRebalances(r.Context(), vaultID)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, response.OK(history))
 }
 
 type createAllocationRequest struct {
@@ -404,6 +454,12 @@ func (h *AdminHandler) writeError(w http.ResponseWriter, r *http.Request, err er
 	switch {
 	case errors.Is(err, service.ErrInvalidAdminInput):
 		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr(err.Error()))
+	case errors.Is(err, service.ErrRebalanceInFlight):
+		response.WriteJSON(w, http.StatusConflict, response.Err(http.StatusConflict, "REBALANCE_IN_FLIGHT", err.Error()))
+	case errors.Is(err, service.ErrRebalanceNotEligible):
+		response.WriteJSON(w, http.StatusBadRequest, response.Err(http.StatusBadRequest, "REBALANCE_NOT_ELIGIBLE", err.Error()))
+	case errors.Is(err, service.ErrChainNotConfigured):
+		response.WriteJSON(w, http.StatusServiceUnavailable, response.Err(http.StatusServiceUnavailable, "CHAIN_NOT_CONFIGURED", err.Error()))
 	case errors.Is(err, vault.ErrVaultNotFound):
 		response.WriteJSON(w, http.StatusNotFound, response.NotFound("vault"))
 	case errors.Is(err, vault.ErrAllocationNotFound):

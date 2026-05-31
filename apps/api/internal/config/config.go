@@ -75,6 +75,8 @@ type StellarConfig struct {
 	horizonURL                string
 	operatorSecret            string
 	stellarUSDCIssuer         string
+	harvestDefaultCompound    bool
+	withdrawalSlippageBps     int
 	allocationStrategyAddress string
 }
 
@@ -156,6 +158,8 @@ func Load() (*Config, error) {
 			horizonURL:                loader.requiredURL("STELLAR_HORIZON_URL"),
 			operatorSecret:            loader.stringDefault("STELLAR_OPERATOR_SECRET", ""),
 			stellarUSDCIssuer:         loader.stringDefault("STELLAR_USDC_ISSUER", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"),
+			harvestDefaultCompound:    loader.boolDefault("HARVEST_DEFAULT_COMPOUND", true),
+			withdrawalSlippageBps:     loader.intDefault("WITHDRAWAL_SLIPPAGE_BPS", 50),
 			allocationStrategyAddress: loader.stringDefault("STELLAR_ALLOCATION_STRATEGY_ADDRESS", ""),
 		},
 		intelligence: IntelligenceConfig{
@@ -447,6 +451,10 @@ func (c *Config) validate(loader *envLoader) {
 		loader.addError("TX_POLLER_MIN_AGE must not be negative")
 	}
 
+	if c.stellar.withdrawalSlippageBps <= 0 || c.stellar.withdrawalSlippageBps > 300 {
+		loader.addError("WITHDRAWAL_SLIPPAGE_BPS must be between 1 and 300")
+	}
+
 	if c.allocation.minWeightPercent < 1 || c.allocation.minWeightPercent > 100 {
 		loader.addError("MIN_ALLOCATION_WEIGHT must be between 1 and 100")
 	}
@@ -543,6 +551,14 @@ func (s StellarConfig) HorizonURL() string {
 
 func (s StellarConfig) OperatorSecret() string {
 	return s.operatorSecret
+}
+
+func (s StellarConfig) HarvestDefaultCompound() bool {
+	return s.harvestDefaultCompound
+}
+
+func (s StellarConfig) WithdrawalSlippageBps() int {
+	return s.withdrawalSlippageBps
 }
 
 func (s StellarConfig) AllocationStrategyAddress() string {

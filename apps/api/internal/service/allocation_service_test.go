@@ -40,6 +40,18 @@ func (r *allocationAdminRepository) GetLastEventIndexedAt(context.Context) (*tim
 func (r *allocationAdminRepository) DatabaseHealth(context.Context) (int64, error) {
 	return 0, nil
 }
+func (r *allocationAdminRepository) HasInFlightRebalance(context.Context, uuid.UUID) (bool, error) {
+	return false, nil
+}
+func (r *allocationAdminRepository) CreateVaultRebalance(context.Context, admindomain.VaultRebalanceRecord) (admindomain.VaultRebalanceRecord, error) {
+	return admindomain.VaultRebalanceRecord{}, nil
+}
+func (r *allocationAdminRepository) UpdateVaultRebalance(context.Context, admindomain.VaultRebalanceRecord) (admindomain.VaultRebalanceRecord, error) {
+	return admindomain.VaultRebalanceRecord{}, nil
+}
+func (r *allocationAdminRepository) ListVaultRebalances(context.Context, uuid.UUID) ([]admindomain.VaultRebalanceRecord, error) {
+	return nil, nil
+}
 
 type allocationVaultRepository struct {
 	allocations []vault.Allocation
@@ -73,6 +85,9 @@ func (r *allocationVaultRepository) UpdateVault(context.Context, uuid.UUID, stri
 func (r *allocationVaultRepository) RecordWithdrawal(context.Context, uuid.UUID, vault.TransactionRecord) error {
 	return nil
 }
+func (r *allocationVaultRepository) RecordHarvest(context.Context, vault.HarvestRecordInput) error {
+	return nil
+}
 func (r *allocationVaultRepository) SoftDeleteVault(context.Context, uuid.UUID) error {
 	return nil
 }
@@ -87,8 +102,14 @@ type recordingChainInvoker struct {
 	weights []AllocationWeightEntry
 }
 
-func (r *recordingChainInvoker) PauseVault(context.Context, string) error   { return nil }
-func (r *recordingChainInvoker) UnpauseVault(context.Context, string) error { return nil }
+func (r *recordingChainInvoker) PauseVault(context.Context, string) error    { return nil }
+func (r *recordingChainInvoker) UnpauseVault(context.Context, string) error  { return nil }
+func (r *recordingChainInvoker) RebalanceVault(context.Context, string) (string, error) {
+	return "", nil
+}
+func (r *recordingChainInvoker) SimulateRebalanceVault(context.Context, string) error {
+	return nil
+}
 func (r *recordingChainInvoker) SetAllocationWeights(_ context.Context, _ string, weights []AllocationWeightEntry) error {
 	r.weights = append([]AllocationWeightEntry{}, weights...)
 	return nil

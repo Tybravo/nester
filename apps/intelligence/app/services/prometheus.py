@@ -11,6 +11,13 @@ import anthropic
 import aiohttp
 
 from app.config import settings
+from app.models.recommendation import (
+    ConfidenceLevel,
+    Recommendation,
+    RecommendedVault,
+    VaultRecommendationRequest,
+    VaultRecommendationResponse,
+)
 from app.services.conversation_store import store as conversation_store
 from app.services.vault_context import VaultContextFetcher
 from app.services.defillama import get_client as get_defillama_client
@@ -20,9 +27,15 @@ logger = logging.getLogger(__name__)
 
 CHAT_MAX_TOKENS = 1024
 ANALYZE_MAX_TOKENS = 800
+RECOMMEND_MAX_TOKENS = 900
 
 _CONTEXT_CACHE_TTL = 60  # seconds
 _CONTEXT_KEY_PREFIX = "prometheus:ctx:"
+_RISK_LIMITS: dict[str, float] = {
+    "conservative": 35.0,
+    "moderate": 65.0,
+    "aggressive": 100.0,
+}
 
 _client: Optional[anthropic.AsyncAnthropic] = None
 _vault_context_fetcher: Optional[VaultContextFetcher] = None
@@ -547,3 +560,342 @@ async def get_vault_recommendations(vault_id: str) -> dict[str, Any]:
             "recommendations": [],
             "confidence": 0.0,
         }
+
+
+def _confidence_from_sources(
+    vaults_ready: bool,
+    risks_ready: bool,
+    market_ready: bool,
+) -> tuple[ConfidenceLevel, str, str]:
+    ready_count = sum((vaults_ready, risks_ready, market_ready))
+    freshness_parts = [
+        f"vaults={'live' if vaults_ready else 'unavailable'}",
+        f"risk scores={'live' if risks_ready else 'partial'}",
+        f"market rates={'live' if market_ready else 'unavailable'}",
+    ]
+
+    if ready_count == 3:
+        return (
+            "high",
+            "Live vault APYs, risk scores, and market rates are all available.",
+            ", ".join(freshness_parts),
+        )
+    if ready_count >= 1:
+        return (
+            "medium",
+            "Some live feeds are missing, so the recommendation leans on partial live data.",
+            ", ".join(freshness_parts),
+        )
+    return (
+        "low",
+        "No live data was available, so the response falls back to general guidance.",
+        ", ".join(freshness_parts),
+    )
+
+
+def _estimate_expected_yield(deposit_usdc: float, time_horizon_months: int, weighted_apy: float) -> float:
+    projected = deposit_usdc * (weighted_apy / 100.0) * (time_horizon_months / 12.0)
+    return round(max(projected, 0.0), 2)
+
+
+def _rank_vaults(
+    vaults: list[dict[str, Any]],
+    risk_scores: dict[str, dict[str, Any]],
+    risk_tolerance: str,
+) -> list[dict[str, Any]]:
+    risk_cap = _RISK_LIMITS.get(risk_tolerance, _RISK_LIMITS["moderate"])
+    ranked: list[dict[str, Any]] = []
+
+    for vault in vaults:
+        vault_id = str(vault.get("id", "")).strip()
+        if not vault_id:
+            continue
+        risk = risk_scores.get(vault_id, {})
+        overall = float(risk.get("overall", 100.0))
+        apy = float(vault.get("apy", 0.0) or 0.0)
+        if overall > risk_cap and risk_tolerance != "aggressive":
+            continue
+        score = apy - (overall / 100.0) * 3.0
+        ranked.append({
+            "id": vault_id,
+            "name": str(vault.get("name", "Vault")),
+            "apy": apy,
+            "risk": overall,
+            "score": score,
+        })
+
+    if not ranked:
+        for vault in vaults:
+            vault_id = str(vault.get("id", "")).strip()
+            if not vault_id:
+                continue
+            risk = risk_scores.get(vault_id, {})
+            ranked.append({
+                "id": vault_id,
+                "name": str(vault.get("name", "Vault")),
+                "apy": float(vault.get("apy", 0.0) or 0.0),
+                "risk": float(risk.get("overall", 100.0)),
+                "score": float(vault.get("apy", 0.0) or 0.0) - (float(risk.get("overall", 100.0)) / 100.0) * 3.0,
+            })
+
+    ranked.sort(key=lambda item: (item["score"], item["apy"]), reverse=True)
+    return ranked
+
+
+def _build_allocation_plan(ranked: list[dict[str, Any]], risk_tolerance: str) -> list[RecommendedVault]:
+    if not ranked:
+        return []
+
+    split_map = {
+        "conservative": [100],
+        "moderate": [70, 30],
+        "aggressive": [60, 40],
+    }
+    desired_split = split_map.get(risk_tolerance, [70, 30])
+    selected = ranked[: len(desired_split)]
+    if len(selected) == 1:
+        selected = ranked[:1]
+        desired_split = [100]
+
+    plan: list[RecommendedVault] = []
+    for vault, pct in zip(selected, desired_split, strict=False):
+        rationale = (
+            f"{vault['name']} combines {vault['apy']:.2f}% APY with a risk score of {vault['risk']:.0f}/100."
+        )
+        plan.append(
+            RecommendedVault(
+                vault_id=vault["id"],
+                allocation_pct=int(pct),
+                rationale=rationale,
+            )
+        )
+
+    total = sum(item.allocation_pct for item in plan)
+    if total != 100 and plan:
+        plan[0] = RecommendedVault(
+            vault_id=plan[0].vault_id,
+            allocation_pct=plan[0].allocation_pct + (100 - total),
+            rationale=plan[0].rationale,
+        )
+    return plan
+
+
+def _fallback_rationale(request: VaultRecommendationRequest, ranked: list[dict[str, Any]]) -> str:
+    if not ranked:
+        return (
+            f"No live vault data was available, so the recommendation follows the user's "
+            f"{request.risk_tolerance} risk tolerance and time horizon of {request.time_horizon_months} months."
+        )
+    best = ranked[0]
+    return (
+        f"{best['name']} is the strongest live match for a {request.risk_tolerance} profile "
+        f"because it combines live APY with an acceptable risk score for the selected horizon."
+    )
+
+
+def _fallback_vault_recommendation(
+    request: VaultRecommendationRequest,
+    ranked: list[dict[str, Any]],
+    confidence: ConfidenceLevel,
+) -> VaultRecommendationResponse:
+    plan = _build_allocation_plan(ranked, request.risk_tolerance)
+    weighted_apy = 0.0
+    if plan and ranked:
+        by_id = {item["id"]: item for item in ranked}
+        for item in plan:
+            source = by_id.get(item.vault_id)
+            if source:
+                weighted_apy += source["apy"] * (item.allocation_pct / 100.0)
+    expected = _estimate_expected_yield(request.initial_deposit_usdc, request.time_horizon_months, weighted_apy)
+    if not plan and ranked:
+        plan = [
+            RecommendedVault(
+                vault_id=ranked[0]["id"],
+                allocation_pct=100,
+                rationale=_fallback_rationale(request, ranked),
+            )
+        ]
+    elif not plan:
+        plan = []
+    return VaultRecommendationResponse(
+        recommended_vaults=plan,
+        expected_yield_usdc=expected,
+        confidence=confidence,
+    )
+
+
+async def recommend_vaults(
+    request: VaultRecommendationRequest,
+    user_id: str | None = None,
+) -> VaultRecommendationResponse:
+    vault_context_fetcher = get_vault_context_fetcher()
+    live_vaults = await vault_context_fetcher.fetch_available_vaults()
+    market_rates = await vault_context_fetcher.fetch_market_rates()
+
+    user_vaults: list[dict[str, Any]] = []
+    if user_id:
+        user_vaults = await vault_context_fetcher.fetch_user_vaults(user_id)
+
+    risk_scores: dict[str, dict[str, Any]] = {}
+    for vault in live_vaults:
+        vault_id = str(vault.get("id", "")).strip()
+        if not vault_id:
+            continue
+        risk = await vault_context_fetcher.fetch_vault_risk(vault_id)
+        if risk:
+            risk_scores[vault_id] = risk
+
+    confidence, confidence_reason, data_freshness = _confidence_from_sources(
+        bool(live_vaults),
+        bool(risk_scores),
+        bool(market_rates),
+    )
+
+    ranked = _rank_vaults(live_vaults, risk_scores, request.risk_tolerance)
+    fallback = _fallback_vault_recommendation(request, ranked, confidence)
+
+    selected_vaults = fallback.recommended_vaults
+    weighted_apy = 0.0
+    ranked_by_id = {item["id"]: item for item in ranked}
+    for item in selected_vaults:
+        source = ranked_by_id.get(item.vault_id)
+        if source:
+            weighted_apy += source["apy"] * (item.allocation_pct / 100.0)
+
+    fallback = fallback.model_copy(update={
+        "expected_yield_usdc": _estimate_expected_yield(
+            request.initial_deposit_usdc,
+            request.time_horizon_months,
+            weighted_apy,
+        ),
+    })
+
+    vault_context_lines = [
+        f"- {vault['name']}: APY {vault.get('apy', 0.0):.2f}%, risk {risk_scores.get(str(vault.get('id', '')), {}).get('overall', 100.0):.0f}/100"
+        for vault in live_vaults[:8]
+    ]
+    user_context_lines = [
+        f"- {vault.get('name', 'Vault')}: ${float(vault.get('balance_usd', 0.0) or 0.0):,.2f} balance, APY {float(vault.get('apy', 0.0) or 0.0):.2f}%"
+        for vault in user_vaults[:5]
+    ]
+    schema = (
+        '{"recommended_vaults": [{"vault_id": str, "allocation_pct": int, "rationale": str}], '
+        '"expected_yield_usdc": float, "confidence": "high"|"medium"|"low"}'
+    )
+    prompt = (
+        "Recommend the best vault or vault split for a Nester user. Use only the live context below. "
+        f"Risk tolerance: {request.risk_tolerance}. "
+        f"Time horizon: {request.time_horizon_months} months. "
+        f"Initial deposit: ${request.initial_deposit_usdc:.2f} USDC. "
+        f"Savings goal: {request.savings_goal or 'not specified'}. "
+        f"User positions: {json.dumps(user_vaults[:5])}. "
+        f"Live vaults:\n{chr(10).join(vault_context_lines)}. "
+        f"Existing position snapshot:\n{chr(10).join(user_context_lines) if user_context_lines else 'none'}. "
+        f"Confidence guidance: {confidence_reason}. Data freshness: {data_freshness}. "
+        f"Return JSON only, matching this schema: {schema}. "
+        "Keep the rationale plain-language and avoid redundant wording."
+    )
+
+    try:
+        response = await get_client().messages.create(
+            model=settings.anthropic_model,
+            max_tokens=RECOMMEND_MAX_TOKENS,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = next(
+            (b.text for b in response.content if isinstance(b, anthropic.types.TextBlock)), ""
+        )
+        parsed = json.loads(_json_strip(text))
+        plan = [
+            RecommendedVault(
+                vault_id=str(item.get("vault_id", "")).strip(),
+                allocation_pct=int(item.get("allocation_pct", 0)),
+                rationale=str(item.get("rationale", "")).strip(),
+            )
+            for item in parsed.get("recommended_vaults", [])
+            if str(item.get("vault_id", "")).strip()
+        ]
+        if not plan:
+            return fallback
+
+        return VaultRecommendationResponse(
+            recommended_vaults=plan,
+            expected_yield_usdc=float(parsed.get("expected_yield_usdc", fallback.expected_yield_usdc) or fallback.expected_yield_usdc),
+            confidence=confidence,
+        )
+    except Exception:
+        logger.exception("Failed to get vault recommendation")
+        return fallback
+
+
+async def analyze_recommendation(
+    prompt: str,
+    user_id: str | None = None,
+) -> Recommendation:
+    vault_context_fetcher = get_vault_context_fetcher()
+    live_vaults = await vault_context_fetcher.fetch_available_vaults()
+    market_rates = await vault_context_fetcher.fetch_market_rates()
+    user_vaults = await vault_context_fetcher.fetch_user_vaults(user_id) if user_id else []
+
+    risk_scores: dict[str, dict[str, Any]] = {}
+    for vault in live_vaults:
+        vault_id = str(vault.get("id", "")).strip()
+        if not vault_id:
+            continue
+        risk = await vault_context_fetcher.fetch_vault_risk(vault_id)
+        if risk:
+            risk_scores[vault_id] = risk
+
+    confidence, confidence_reason, data_freshness = _confidence_from_sources(
+        bool(live_vaults),
+        bool(risk_scores),
+        bool(market_rates),
+    )
+
+    schema = (
+        '{"action": str, "rationale": str, "confidence": "high"|"medium"|"low", '
+        '"confidence_reason": str, "data_freshness": str, "disclaimer": str}'
+    )
+    context_lines = [
+        f"- {vault['name']}: APY {vault.get('apy', 0.0):.2f}%, risk {vault.get('risk_tier', 'unknown')}"
+        for vault in live_vaults[:6]
+    ]
+    user_context = json.dumps(user_vaults[:5]) if user_vaults else "[]"
+    analysis_prompt = (
+        f"Analyse this user request for Nester: {prompt}. "
+        f"Live vault context:\n{chr(10).join(context_lines)}. "
+        f"User positions: {user_context}. "
+        f"Confidence guidance: {confidence_reason}. Data freshness: {data_freshness}. "
+        f"Return JSON only, matching this schema: {schema}."
+    )
+
+    try:
+        response = await get_client().messages.create(
+            model=settings.anthropic_model,
+            max_tokens=ANALYZE_MAX_TOKENS,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": analysis_prompt}],
+        )
+        text = next(
+            (b.text for b in response.content if isinstance(b, anthropic.types.TextBlock)), ""
+        )
+        parsed = json.loads(_json_strip(text))
+        return Recommendation(
+            action=str(parsed.get("action", "Review your vault allocation")).strip(),
+            rationale=str(parsed.get("rationale", "")).strip(),
+            confidence=confidence,
+            confidence_reason=str(parsed.get("confidence_reason", confidence_reason)).strip() or confidence_reason,
+            data_freshness=str(parsed.get("data_freshness", data_freshness)).strip() or data_freshness,
+            disclaimer=str(parsed.get("disclaimer", "This is guidance, not financial advice.")).strip() or "This is guidance, not financial advice.",
+        )
+    except Exception:
+        logger.exception("Failed to analyze recommendation prompt")
+        return Recommendation(
+            action="Review your vault allocation",
+            rationale=_fallback_rationale(VaultRecommendationRequest(risk_tolerance="moderate", time_horizon_months=12, initial_deposit_usdc=1.0), ranked=[]),
+            confidence=confidence,
+            confidence_reason=confidence_reason,
+            data_freshness=data_freshness,
+            disclaimer="This is guidance, not financial advice.",
+        )
