@@ -85,6 +85,7 @@ type AllocationConfig struct {
 
 type AuthConfig struct {
 	secret          string
+	serviceAPIKey   string
 	tokenExpiry     time.Duration
 	challengeExpiry time.Duration
 }
@@ -164,6 +165,7 @@ func Load() (*Config, error) {
 		settlementProviderURL: loader.stringDefault("SETTLEMENT_PROVIDER_URL", ""),
 		auth: AuthConfig{
 			secret:          loader.requiredString("AUTH_JWT_SECRET"),
+			serviceAPIKey:   loader.stringDefault("NESTER_SERVICE_API_KEY", ""),
 			tokenExpiry:     loader.durationDefault("AUTH_TOKEN_EXPIRY", 24*time.Hour),
 			challengeExpiry: loader.durationDefault("AUTH_CHALLENGE_EXPIRY", 5*time.Minute),
 		},
@@ -551,6 +553,10 @@ func (l LogConfig) Format() string {
 
 func (a AuthConfig) Secret() string {
 	return a.secret
+}
+
+func (a AuthConfig) ServiceAPIKey() string {
+	return a.serviceAPIKey
 }
 
 func (a AuthConfig) TokenExpiry() time.Duration {

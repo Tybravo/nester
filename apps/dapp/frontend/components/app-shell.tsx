@@ -15,6 +15,7 @@ import {
     LogOut,
     Menu,
     PiggyBank,
+    Settings,
     User,
     Vault,
     X,
@@ -34,6 +35,7 @@ const SIDEBAR_NAV = [
     { label: "Stocks", href: "/stocks", icon: CandlestickChart },
     { label: "Offramp", href: "/offramp", icon: Globe },
     { label: "Portfolio", href: "/portfolio", icon: BarChart3 },
+    { label: "Settings", href: "/settings", icon: Settings },
 ];
 
 // ── Sidebar ──────────────────────────────────────────────────────────────────

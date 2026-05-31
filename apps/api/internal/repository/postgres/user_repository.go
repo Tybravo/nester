@@ -45,7 +45,9 @@ func (r *UserRepository) Create(ctx context.Context, model *user.User) error {
 
 func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*user.User, error) {
 	query := `
-		SELECT id, wallet_address, display_name, kyc_status, tier, last_login_at, created_at, updated_at
+		SELECT id, wallet_address, display_name, kyc_status, tier,
+		       risk_profile, savings_goal, onboarding_completed,
+		       last_login_at, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`
@@ -54,11 +56,52 @@ func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*user.User,
 
 func (r *UserRepository) GetByWalletAddress(ctx context.Context, addr string) (*user.User, error) {
 	query := `
-		SELECT id, wallet_address, display_name, kyc_status, tier, last_login_at, created_at, updated_at
+		SELECT id, wallet_address, display_name, kyc_status, tier,
+		       risk_profile, savings_goal, onboarding_completed,
+		       last_login_at, created_at, updated_at
 		FROM users
 		WHERE wallet_address = $1
 	`
 	return scanUser(r.db.QueryRowContext(ctx, query, addr))
+}
+
+func (r *UserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, patch user.ProfilePatch) (*user.User, error) {
+	u, err := r.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if patch.RiskProfile != nil {
+		u.RiskProfile = patch.RiskProfile
+	}
+	if patch.SavingsGoal != nil {
+		u.SavingsGoal = patch.SavingsGoal
+	}
+	if patch.OnboardingCompleted != nil {
+		u.OnboardingCompleted = *patch.OnboardingCompleted
+	}
+	_, err = r.db.ExecContext(ctx, `
+		UPDATE users
+		SET risk_profile = $1, savings_goal = $2, onboarding_completed = $3, updated_at = NOW()
+		WHERE id = $4
+	`, nullableRiskProfile(u.RiskProfile), nullableStringPtr(u.SavingsGoal), u.OnboardingCompleted, id)
+	if err != nil {
+		return nil, err
+	}
+	return r.GetByID(ctx, id)
+}
+
+func nullableRiskProfile(r *user.RiskProfile) interface{} {
+	if r == nil {
+		return nil
+	}
+	return string(*r)
+}
+
+func nullableStringPtr(s *string) interface{} {
+	if s == nil {
+		return nil
+	}
+	return *s
 }
 
 type userScanner interface {
@@ -67,14 +110,17 @@ type userScanner interface {
 
 func scanUser(row userScanner) (*user.User, error) {
 	var (
-		id            string
-		walletAddress string
-		displayName   string
-		kycStatus     string
-		tier          string
-		lastLoginAt   sql.NullTime
-		createdAt     time.Time
-		updatedAt     time.Time
+		id                  string
+		walletAddress       string
+		displayName         string
+		kycStatus           string
+		tier                string
+		riskProfile         sql.NullString
+		savingsGoal         sql.NullString
+		onboardingCompleted bool
+		lastLoginAt         sql.NullTime
+		createdAt           time.Time
+		updatedAt           time.Time
 	)
 
 	if err := row.Scan(
@@ -83,6 +129,9 @@ func scanUser(row userScanner) (*user.User, error) {
 		&displayName,
 		&kycStatus,
 		&tier,
+		&riskProfile,
+		&savingsGoal,
+		&onboardingCompleted,
 		&lastLoginAt,
 		&createdAt,
 		&updatedAt,
@@ -104,15 +153,28 @@ func scanUser(row userScanner) (*user.User, error) {
 		lastLoginAtPtr = &t
 	}
 
+	var riskPtr *user.RiskProfile
+	if riskProfile.Valid && riskProfile.String != "" {
+		rp := user.RiskProfile(riskProfile.String)
+		riskPtr = &rp
+	}
+	var savingsPtr *string
+	if savingsGoal.Valid {
+		savingsPtr = &savingsGoal.String
+	}
+
 	return &user.User{
-		ID:            parsedID,
-		WalletAddress: walletAddress,
-		DisplayName:   displayName,
-		KYCStatus:     user.KYCStatus(kycStatus),
-		Tier:          tier,
-		LastLoginAt:   lastLoginAtPtr,
-		CreatedAt:     createdAt,
-		UpdatedAt:     updatedAt,
+		ID:                  parsedID,
+		WalletAddress:       walletAddress,
+		DisplayName:         displayName,
+		KYCStatus:           user.KYCStatus(kycStatus),
+		Tier:                tier,
+		RiskProfile:         riskPtr,
+		SavingsGoal:         savingsPtr,
+		OnboardingCompleted: onboardingCompleted,
+		LastLoginAt:         lastLoginAtPtr,
+		CreatedAt:           createdAt,
+		UpdatedAt:           updatedAt,
 	}, nil
 }
 

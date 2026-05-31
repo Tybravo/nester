@@ -277,6 +277,16 @@ func run() error {
 	watchlistHandler := handler.NewWatchlistHandler(watchlistSvc)
 	watchlistHandler.Register(mux)
 
+	// Savings goals
+	savingsGoalRepo := postgres.NewSavingsGoalRepository(db)
+	savingsGoalSvc := service.NewSavingsGoalService(savingsGoalRepo)
+	savingsGoalHandler := handler.NewSavingsGoalHandler(savingsGoalSvc)
+	savingsGoalHandler.Register(mux)
+
+	// User vault rebalance (suggestions + execution)
+	vaultRebalanceSvc := service.NewVaultRebalanceService(vaultRepository, adminService)
+	vaultHandler.SetRebalanceService(vaultRebalanceSvc)
+
 	bankHandler.Register(mux)
 
 	mux.HandleFunc("GET /ws", wsHub.ServeWs)
@@ -291,7 +301,7 @@ func run() error {
 		{PathPrefix: "/api/v1/admin/", Public: false, Role: "admin"},
 		{PathPrefix: "/api/v1/", Public: false},
 	}
-	authenticator := middleware.Authenticate(cfg.Auth().Secret(), authRules)
+	authenticator := middleware.Authenticate(cfg.Auth().Secret(), cfg.Auth().ServiceAPIKey(), authRules)
 	globalLimiter := middleware.IPRateLimiter(cfg.RateLimit().GlobalLimit(), cfg.RateLimit().GlobalWindow())
 	writeLimiter := middleware.WriteMethodRateLimiter(cfg.RateLimit().WriteLimit(), cfg.RateLimit().WriteWindow())
 	walletLimiter := middleware.WalletRateLimiter(

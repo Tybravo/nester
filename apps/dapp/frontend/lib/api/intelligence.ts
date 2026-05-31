@@ -36,6 +36,34 @@ export interface VaultRecommendationInput {
   savings_goal?: string
 }
 
+export interface CoachingDepositItem {
+  date: string
+  amount_usdc: number
+  note?: string
+}
+
+export interface CoachingResponse {
+  progress_assessment: string
+  deposit_schedule: CoachingDepositItem[]
+  nudges: string[]
+  confidence: string
+}
+
+export interface CoachingRequest {
+  goal: {
+    target_amount: number
+    currency: string
+    deadline: string
+    description?: string
+    current_amount: number
+    progress_pct: number
+  }
+  portfolio: {
+    total_balance_usd: number
+    vaults: Array<Record<string, unknown>>
+  }
+}
+
 export interface MarketSentiment {
   signal: 'bull' | 'bear' | 'neutral'
   summary: string
@@ -87,6 +115,12 @@ export const intelligence = {
 
   recommendVault: (input: VaultRecommendationInput) =>
     apiFetch<VaultRecommendationPlan>('/recommend/vault', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  coaching: (input: CoachingRequest) =>
+    apiFetch<CoachingResponse>('/intelligence/coaching', {
       method: 'POST',
       body: JSON.stringify(input),
     }),

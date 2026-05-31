@@ -5,10 +5,12 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 
+	"github.com/suncrestlabs/nester/apps/api/internal/auth"
 	"github.com/suncrestlabs/nester/apps/api/internal/domain/user"
 	"github.com/suncrestlabs/nester/apps/api/internal/service"
 	logpkg "github.com/suncrestlabs/nester/apps/api/pkg/logger"
@@ -36,6 +38,8 @@ func (h *UserHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/users", h.registerUser)
 	mux.HandleFunc("GET /api/v1/users/{id}", h.getUserByID)
 	mux.HandleFunc("GET /api/v1/users/wallet/{address}", h.getUserByWallet)
+	mux.HandleFunc("GET /api/v1/users/profile", h.getProfile)
+	mux.HandleFunc("PATCH /api/v1/users/profile", h.updateProfile)
 }
 
 func (h *UserHandler) registerUser(w http.ResponseWriter, r *http.Request) {
@@ -74,6 +78,72 @@ func (h *UserHandler) getUserByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.WriteJSON(w, http.StatusOK, response.OK(model))
+}
+
+func (h *UserHandler) getProfile(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.authenticatedUserID(w, r)
+	if !ok {
+		return
+	}
+	model, err := h.service.GetProfile(r.Context(), userID)
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, response.OK(model))
+}
+
+type updateProfileRequest struct {
+	RiskProfile         *string `json:"risk_profile"`
+	SavingsGoal         *string `json:"savings_goal"`
+	OnboardingCompleted *bool   `json:"onboarding_completed"`
+}
+
+func (h *UserHandler) updateProfile(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.authenticatedUserID(w, r)
+	if !ok {
+		return
+	}
+	var req updateProfileRequest
+	if err := h.decodeJSON(r, &req); err != nil {
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr(err.Error()))
+		return
+	}
+	in := service.UpdateProfileInput{
+		SavingsGoal:         req.SavingsGoal,
+		OnboardingCompleted: req.OnboardingCompleted,
+	}
+	if req.RiskProfile != nil {
+		rp := strings.ToLower(strings.TrimSpace(*req.RiskProfile))
+		switch user.RiskProfile(rp) {
+		case user.RiskProfileConservative, user.RiskProfileModerate, user.RiskProfileAggressive:
+			profile := user.RiskProfile(rp)
+			in.RiskProfile = &profile
+		default:
+			response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("risk_profile must be conservative, moderate, or aggressive"))
+			return
+		}
+	}
+	model, err := h.service.UpdateProfile(r.Context(), userID, in)
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, response.OK(model))
+}
+
+func (h *UserHandler) authenticatedUserID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	u, ok := auth.GetUserFromContext(r.Context())
+	if !ok {
+		response.WriteJSON(w, http.StatusUnauthorized, response.Err(http.StatusUnauthorized, "UNAUTHORIZED", "authentication required"))
+		return uuid.Nil, false
+	}
+	id, err := uuid.Parse(u.ID)
+	if err != nil {
+		response.WriteJSON(w, http.StatusUnauthorized, response.Err(http.StatusUnauthorized, "UNAUTHORIZED", "invalid user identity"))
+		return uuid.Nil, false
+	}
+	return id, true
 }
 
 func (h *UserHandler) getUserByWallet(w http.ResponseWriter, r *http.Request) {

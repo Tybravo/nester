@@ -139,9 +139,21 @@ async def fetch_user_context(user_id: str, api_base_url: str, service_api_key: s
         ) as resp:
             performance_data = await resp.json() if resp.status == 200 else {}
 
+        savings_goals: list[dict[str, Any]] = []
+        async with session.get(
+            f"{base}/api/v1/users/savings-goals",
+            headers={**headers, "X-User-Id": user_id},
+            timeout=aiohttp.ClientTimeout(total=5),
+        ) as resp:
+            if resp.status == 200:
+                payload = await resp.json()
+                if isinstance(payload, dict) and payload.get("success"):
+                    savings_goals = payload.get("data") or []
+
     return {
         "vaults": vaults_data,
         "performance": performance_data,
+        "savings_goals": savings_goals,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -289,12 +301,20 @@ portfolio."""
     user_context = await _get_cached_user_context(user_id)
     context_injection: list[dict[str, str]] = []
     if user_context:
+        goals_block = ""
+        active_goals = user_context.get("savings_goals") or []
+        if active_goals:
+            goals_block = (
+                "\n\nActive savings goals (use for coaching and progress nudges):\n"
+                + json.dumps(active_goals, indent=2)
+            )
         context_injection = [
             {
                 "role": "user",
                 "content": (
                     "[PORTFOLIO CONTEXT — do not quote this back, use it to personalise your response]\n"
                     + json.dumps(user_context, indent=2)
+                    + goals_block
                 ),
             }
         ]
@@ -333,6 +353,66 @@ portfolio."""
 
 def _json_strip(raw: str) -> str:
     return raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+
+
+async def generate_coaching(request: Any) -> Any:
+    """Generate deposit schedule and progress assessment for a savings goal."""
+    from app.models.coaching import CoachingResponse, DepositScheduleItem
+
+    goal = request.goal
+    portfolio = request.portfolio
+    schema = (
+        '{"progress_assessment": str, "deposit_schedule": [{"date": str, "amount_usdc": float, "note": str}], '
+        '"nudges": [str], "confidence": "high"|"medium"|"low"}'
+    )
+    prompt = (
+        "You are Prometheus, a savings coach for Nester on Stellar. "
+        f"Goal: target {goal.target_amount} {goal.currency}, deadline {goal.deadline}, "
+        f"description: {goal.description or 'none'}. "
+        f"Current progress: {goal.progress_pct:.1f}% ({goal.current_amount} saved). "
+        f"Portfolio total USD: {portfolio.total_balance_usd}. Vaults: {json.dumps(portfolio.vaults[:5])}. "
+        "Return a realistic deposit schedule from today until the deadline, with 3-8 installments. "
+        "Include a short progress assessment and 2-3 motivational nudges. "
+        f"Respond with JSON only matching: {schema}"
+    )
+    client = get_client()
+    try:
+        response = await client.messages.create(
+            model=settings.anthropic_model,
+            max_tokens=ANALYZE_MAX_TOKENS,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = next(
+            (b.text for b in response.content if isinstance(b, anthropic.types.TextBlock)), ""
+        )
+        parsed = json.loads(_json_strip(text))
+        schedule = [
+            DepositScheduleItem(
+                date=str(item.get("date", "")),
+                amount_usdc=float(item.get("amount_usdc", 0)),
+                note=item.get("note"),
+            )
+            for item in parsed.get("deposit_schedule", [])
+        ]
+        return CoachingResponse(
+            progress_assessment=str(parsed.get("progress_assessment", "")),
+            deposit_schedule=schedule,
+            nudges=[str(n) for n in parsed.get("nudges", [])],
+            confidence=str(parsed.get("confidence", "medium")),
+        )
+    except Exception:
+        logger.exception("coaching generation failed")
+        remaining = max(goal.target_amount - goal.current_amount, 0)
+        return CoachingResponse(
+            progress_assessment=(
+                f"You are {goal.progress_pct:.0f}% toward your goal. "
+                f"About {remaining:.0f} {goal.currency} left to save."
+            ),
+            deposit_schedule=[],
+            nudges=["Keep making steady deposits to stay on track."],
+            confidence="low",
+        )
 
 
 async def get_portfolio_insights(user_id: str) -> list[dict[str, Any]]:
