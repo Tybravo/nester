@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"github.com/suncrestlabs/nester/apps/api/internal/auth"
 	"github.com/suncrestlabs/nester/apps/api/internal/domain/vault"
 	"github.com/suncrestlabs/nester/apps/api/internal/service"
+	"github.com/suncrestlabs/nester/apps/api/internal/ws"
 	logpkg "github.com/suncrestlabs/nester/apps/api/pkg/logger"
 	"github.com/suncrestlabs/nester/apps/api/pkg/listquery"
 	"github.com/suncrestlabs/nester/apps/api/pkg/response"
@@ -21,7 +23,9 @@ import (
 const maxRequestBodyBytes int64 = 1 << 20
 
 type VaultHandler struct {
-	service *service.VaultService
+	service      *service.VaultService
+	rebalanceSvc *service.VaultRebalanceService
+	wsHub        *ws.Hub
 }
 
 type createVaultRequest struct {
@@ -44,15 +48,32 @@ func NewVaultHandler(service *service.VaultService) *VaultHandler {
 	return &VaultHandler{service: service}
 }
 
+// SetWSHub wires the websocket hub used to broadcast harvest events.
+func (h *VaultHandler) SetWSHub(hub *ws.Hub) {
+	h.wsHub = hub
+}
+
+// SetRebalanceService wires user-facing rebalance suggestion and execution.
+func (h *VaultHandler) SetRebalanceService(svc *service.VaultRebalanceService) {
+	h.rebalanceSvc = svc
+}
+
 func (h *VaultHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/vaults", h.createVault)
 	mux.HandleFunc("GET /api/v1/vaults/{id}", h.getVault)
 	mux.HandleFunc("GET /api/v1/vaults/{id}/allocations", h.getAllocations)
+	mux.HandleFunc("POST /api/v1/vaults/{id}/harvest", h.harvestVault)
 	mux.HandleFunc("GET /api/v1/vaults/{id}/my-position", h.getMyPosition)
 	mux.HandleFunc("GET /api/v1/vaults", h.listUserVaults)
 	mux.HandleFunc("GET /api/v1/vaults/all", h.listVaults)
 	mux.HandleFunc("POST /api/v1/vaults/{id}/deposit", h.depositToVault)
 	mux.HandleFunc("POST /api/v1/vaults/{id}/withdraw", h.withdrawFromVault)
+	mux.HandleFunc("GET /api/v1/vaults/{id}/rebalance-suggestion", h.getRebalanceSuggestion)
+	mux.HandleFunc("POST /api/v1/vaults/{id}/rebalance", h.rebalanceVault)
+}
+
+type harvestVaultRequest struct {
+	Compound *bool `json:"compound"`
 }
 
 func (h *VaultHandler) createVault(w http.ResponseWriter, r *http.Request) {
@@ -203,6 +224,54 @@ func (h *VaultHandler) listUserVaults(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, http.StatusOK, response.PaginatedOK(models, params.Page.Page, params.Page.PerPage, total, ""))
 }
 
+func (h *VaultHandler) harvestVault(w http.ResponseWriter, r *http.Request) {
+	vaultID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("vault id must be a valid UUID"))
+		return
+	}
+
+	var req harvestVaultRequest
+	if err := decodeJSON(r, &req); err != nil {
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr(err.Error()))
+		return
+	}
+
+	authUser, ok := auth.GetUserFromContext(r.Context())
+	if !ok {
+		response.WriteJSON(w, http.StatusUnauthorized, response.Err(http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized"))
+		return
+	}
+
+	userID, err := uuid.Parse(authUser.ID)
+	if err != nil {
+		response.WriteJSON(w, http.StatusUnauthorized, response.Err(http.StatusUnauthorized, "UNAUTHORIZED", "invalid token subject"))
+		return
+	}
+
+	result, err := h.service.HarvestVault(r.Context(), service.HarvestVaultInput{
+		VaultID:       vaultID,
+		UserID:        userID,
+		WalletAddress: authUser.WalletAddress,
+		Compound:      req.Compound,
+	})
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+
+	if h.wsHub != nil {
+		h.wsHub.BroadcastEvent(ws.Event{
+			Channel:   "vault:" + vaultID.String(),
+			Type:      ws.EventHarvestCompleted,
+			Data:      result,
+			Timestamp: time.Now().UTC(),
+		})
+	}
+
+	response.WriteJSON(w, http.StatusOK, response.OK(result))
+}
+
 func (h *VaultHandler) getAllocations(w http.ResponseWriter, r *http.Request) {
 	vaultID, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
@@ -219,7 +288,87 @@ func (h *VaultHandler) getAllocations(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, http.StatusOK, response.OK(v.Allocations))
 }
 
-func (h *VaultHandler) depositToVault(w http.ResponseWriter, r *http.Request) {
+func (h *VaultHandler) getRebalanceSuggestion(w http.ResponseWriter, r *http.Request) {
+	if h.rebalanceSvc == nil {
+		response.WriteJSON(w, http.StatusServiceUnavailable, response.Err(http.StatusServiceUnavailable, "UNAVAILABLE", "rebalance service not configured"))
+		return
+	}
+	vaultID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("vault id must be a valid UUID"))
+		return
+	}
+	userID, err := h.authenticatedUserID(w, r)
+	if err != nil {
+		return
+	}
+	suggestion, err := h.rebalanceSvc.GetSuggestion(r.Context(), vaultID, userID)
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, response.OK(suggestion))
+}
+
+type rebalanceVaultRequest struct {
+	Allocations []service.AllocationPct `json:"allocations"`
+}
+
+func (h *VaultHandler) rebalanceVault(w http.ResponseWriter, r *http.Request) {
+	if h.rebalanceSvc == nil {
+		response.WriteJSON(w, http.StatusServiceUnavailable, response.Err(http.StatusServiceUnavailable, "UNAVAILABLE", "rebalance service not configured"))
+		return
+	}
+	vaultID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("vault id must be a valid UUID"))
+		return
+	}
+	userID, err := h.authenticatedUserID(w, r)
+	if err != nil {
+		return
+	}
+	var req rebalanceVaultRequest
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodyBytes))
+	if err != nil {
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("invalid request body"))
+		return
+	}
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("request body must be valid JSON"))
+			return
+		}
+	}
+	if len(req.Allocations) > 0 {
+		if err := service.ValidateRebalanceAllocations(req.Allocations); err != nil {
+			response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr(err.Error()))
+			return
+		}
+	}
+	result, err := h.rebalanceSvc.TriggerRebalance(r.Context(), vaultID, userID, req.Allocations)
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, response.OK(result))
+}
+
+func (h *VaultHandler) authenticatedUserID(w http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
+	user, ok := auth.GetUserFromContext(r.Context())
+	if !ok {
+		response.WriteJSON(w, http.StatusUnauthorized, response.Err(http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized"))
+		return uuid.Nil, errors.New("unauthorized")
+	}
+	userID, err := uuid.Parse(user.ID)
+	if err != nil {
+		response.WriteJSON(w, http.StatusUnauthorized, response.Err(http.StatusUnauthorized, "UNAUTHORIZED", "invalid token subject"))
+		return uuid.Nil, err
+	}
+	return userID, nil
+}
+
+func (h *VaultHandler) getMyPosition(w http.ResponseWriter, r *http.Request) {
 	vaultID, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
 		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("vault id must be a valid UUID"))
@@ -351,6 +500,8 @@ func (h *VaultHandler) writeDomainError(w http.ResponseWriter, r *http.Request, 
 	switch {
 	case errors.Is(err, vault.ErrVaultNotFound):
 		response.WriteJSON(w, http.StatusNotFound, response.NotFound("vault"))
+	case errors.Is(err, vault.ErrVaultForbidden):
+		response.WriteJSON(w, http.StatusForbidden, response.Err(http.StatusForbidden, "FORBIDDEN", "forbidden"))
 	case errors.Is(err, vault.ErrUserNotFound):
 		response.WriteJSON(w, http.StatusNotFound, response.NotFound("user"))
 	case errors.Is(err, vault.ErrInvalidVault), errors.Is(err, vault.ErrInvalidAmount), errors.Is(err, vault.ErrInvalidAllocation):

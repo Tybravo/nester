@@ -69,3 +69,21 @@ func (s *UserService) UpdateKYCStatus(ctx context.Context, userID uuid.UUID, sta
 	now := time.Now()
 	return s.repo.UpdateKYCStatus(ctx, userID, status, reason, &now)
 }
+
+type UpdateProfileInput struct {
+	RiskProfile         *user.RiskProfile `json:"risk_profile"`
+	SavingsGoal         *string           `json:"savings_goal"`
+	OnboardingCompleted *bool             `json:"onboarding_completed"`
+}
+
+func (s *UserService) UpdateProfile(ctx context.Context, userID uuid.UUID, in UpdateProfileInput) (*user.User, error) {
+	return s.repo.UpdateProfile(ctx, userID, user.ProfilePatch{
+		RiskProfile:         in.RiskProfile,
+		SavingsGoal:         in.SavingsGoal,
+		OnboardingCompleted: in.OnboardingCompleted,
+	})
+}
+
+func (s *UserService) GetProfile(ctx context.Context, userID uuid.UUID) (*user.User, error) {
+	return s.repo.GetByID(ctx, userID)
+}

@@ -45,7 +45,7 @@ func (r *UserRepository) Create(ctx context.Context, model *user.User) error {
 
 func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*user.User, error) {
 	query := `
-		SELECT id, wallet_address, display_name, kyc_status, tier, kyc_submitted_at, kyc_reviewed_at, kyc_rejection_reason, last_login_at, created_at, updated_at
+		SELECT id, wallet_address, display_name, kyc_status, tier, kyc_submitted_at, kyc_reviewed_at, kyc_rejection_reason, risk_profile, savings_goal, onboarding_completed, last_login_at, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`
@@ -54,11 +54,50 @@ func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*user.User,
 
 func (r *UserRepository) GetByWalletAddress(ctx context.Context, addr string) (*user.User, error) {
 	query := `
-		SELECT id, wallet_address, display_name, kyc_status, tier, kyc_submitted_at, kyc_reviewed_at, kyc_rejection_reason, last_login_at, created_at, updated_at
+		SELECT id, wallet_address, display_name, kyc_status, tier, kyc_submitted_at, kyc_reviewed_at, kyc_rejection_reason, risk_profile, savings_goal, onboarding_completed, last_login_at, created_at, updated_at
 		FROM users
 		WHERE wallet_address = $1
 	`
 	return scanUser(r.db.QueryRowContext(ctx, query, addr))
+}
+
+func (r *UserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, patch user.ProfilePatch) (*user.User, error) {
+	u, err := r.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if patch.RiskProfile != nil {
+		u.RiskProfile = patch.RiskProfile
+	}
+	if patch.SavingsGoal != nil {
+		u.SavingsGoal = patch.SavingsGoal
+	}
+	if patch.OnboardingCompleted != nil {
+		u.OnboardingCompleted = *patch.OnboardingCompleted
+	}
+	_, err = r.db.ExecContext(ctx, `
+		UPDATE users
+		SET risk_profile = $1, savings_goal = $2, onboarding_completed = $3, updated_at = NOW()
+		WHERE id = $4
+	`, nullableRiskProfile(u.RiskProfile), nullableStringPtr(u.SavingsGoal), u.OnboardingCompleted, id)
+	if err != nil {
+		return nil, err
+	}
+	return r.GetByID(ctx, id)
+}
+
+func nullableRiskProfile(r *user.RiskProfile) interface{} {
+	if r == nil {
+		return nil
+	}
+	return string(*r)
+}
+
+func nullableStringPtr(s *string) interface{} {
+	if s == nil {
+		return nil
+	}
+	return *s
 }
 
 type userScanner interface {
@@ -75,6 +114,9 @@ func scanUser(row userScanner) (*user.User, error) {
 		kycSubmittedAt     sql.NullTime
 		kycReviewedAt      sql.NullTime
 		kycRejectionReason sql.NullString
+    riskProfile         sql.NullString
+		savingsGoal         sql.NullString
+		onboardingCompleted bool
 		lastLoginAt        sql.NullTime
 		createdAt          time.Time
 		updatedAt          time.Time
@@ -89,6 +131,9 @@ func scanUser(row userScanner) (*user.User, error) {
 		&kycSubmittedAt,
 		&kycReviewedAt,
 		&kycRejectionReason,
+		&riskProfile,
+		&savingsGoal,
+		&onboardingCompleted,
 		&lastLoginAt,
 		&createdAt,
 		&updatedAt,
@@ -122,6 +167,16 @@ func scanUser(row userScanner) (*user.User, error) {
 		kycRejReasonPtr = &kycRejectionReason.String
 	}
 
+	var riskPtr *user.RiskProfile
+	if riskProfile.Valid && riskProfile.String != "" {
+		rp := user.RiskProfile(riskProfile.String)
+		riskPtr = &rp
+	}
+	var savingsPtr *string
+	if savingsGoal.Valid {
+		savingsPtr = &savingsGoal.String
+	}
+
 	return &user.User{
 		ID:                 parsedID,
 		WalletAddress:      walletAddress,
@@ -131,6 +186,9 @@ func scanUser(row userScanner) (*user.User, error) {
 		KYCSubmittedAt:     kycSubAtPtr,
 		KYCReviewedAt:      kycRevAtPtr,
 		KYCRejectionReason: kycRejReasonPtr,
+    RiskProfile:         riskPtr,
+		SavingsGoal:         savingsPtr,
+		OnboardingCompleted: onboardingCompleted,
 		LastLoginAt:        lastLoginAtPtr,
 		CreatedAt:          createdAt,
 		UpdatedAt:          updatedAt,
