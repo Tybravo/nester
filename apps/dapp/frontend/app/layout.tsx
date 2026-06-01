@@ -12,8 +12,6 @@ import { SettingsProvider } from "@/context/settings-context";
 import { OnboardingProvider } from "@/hooks/useOnboarding";
 import { NetworkProvider } from "@/context/NetworkProvider";
 import { NetworkBanner } from "@/components/network/NetworkSelector";
-import { PrometheusChatbot } from "@/components/ai/prometheusChatbot";
-import { A11yAudit } from "@/components/A11yAudit";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -28,11 +26,7 @@ export const metadata: Metadata = {
     },
 };
 
-import { SettingsProvider } from "@/context/settings-context";
 import { ConsentProvider } from "@/context/consent-context";
-import { OnboardingProvider } from "@/hooks/useOnboarding";
-import { NetworkProvider } from "@/context/NetworkProvider";
-import { NetworkBanner } from "@/components/network/NetworkSelector";
 import { ConsentGatedPrometheus } from "@/components/consent-gated-prometheus";
 import { CookieConsentBanner } from "@/components/cookie-consent-banner";
 

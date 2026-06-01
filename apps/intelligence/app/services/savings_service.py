@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class SavingsService:
-    def __init__(self):
+    def __init__(self) -> None:
         self.fetcher = VaultContextFetcher(
             api_base_url=settings.nester_api_base_url,
             service_api_key=settings.nester_service_api_key,
@@ -28,7 +28,7 @@ class SavingsService:
 
         # Simple average of available rates
         total_apy = sum(rate.get("apy", 0) for rate in rates)
-        return total_apy / len(rates)
+        return float(total_apy / len(rates))
 
     async def generate_plan(self, request: SavingsPlanRequest) -> SavingsPlanResponse:
         # 1. Determine APY
@@ -144,7 +144,9 @@ class SavingsService:
                 max_tokens=150,
                 messages=[{"role": "user", "content": prompt}],
             )
-            return response.content[0].text
+            if response.content and hasattr(response.content[0], "text"):
+                return response.content[0].text
+            return ""
         except Exception as e:
             logger.error(f"Error generating narrative from Claude: {e}")
             if achievable:
@@ -160,4 +162,4 @@ class SavingsService:
             )
 
 
-savings_service = SavingsService()
+savings_service: SavingsService = SavingsService()

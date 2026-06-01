@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:a11y": "playwright test tests/accessibility.spec.ts"
+    "test:a11y": "playwright test tests/accessibility.spec.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

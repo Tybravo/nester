@@ -113,20 +113,6 @@ export default function PortfolioPage() {
         setTimeout(() => setCopied(false), 1500);
     };
 
-    if (!isConnected) return null;
-
-    const xlmBal = walletAssets.find(a => a.code === "XLM")?.balance ?? 0;
-    const usdcBal = walletAssets.find(a => a.code === "USDC")?.balance ?? 0;
-    const walletUsd = xlmBal * tokenPrices.XLM + usdcBal * tokenPrices.USDC;
-    const vaultUsd = positions.reduce((s, p) => s + p.currentValue, 0);
-    const totalYield = positions.reduce((s, p) => s + p.yieldEarned, 0);
-    const totalUsd = walletUsd + vaultUsd;
-
-    const hide = (v: string) => hideBalances ? "••••••" : v;
-    const fmtUsd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-    const recentTx = transactions.slice(0, 15);
-
     // ── Yield comparison data derived from positions ──────────────────────────
     const { compareHistory, compareSnapshots } = useMemo((): {
         compareHistory: ProtocolApyPoint[];
@@ -175,6 +161,20 @@ export default function PortfolioPage() {
 
         return { compareHistory: history, compareSnapshots: snapshots };
     }, [positions]);
+
+    if (!isConnected) return null;
+
+    const xlmBal = walletAssets.find(a => a.code === "XLM")?.balance ?? 0;
+    const usdcBal = walletAssets.find(a => a.code === "USDC")?.balance ?? 0;
+    const walletUsd = xlmBal * tokenPrices.XLM + usdcBal * tokenPrices.USDC;
+    const vaultUsd = positions.reduce((s, p) => s + p.currentValue, 0);
+    const totalYield = positions.reduce((s, p) => s + p.yieldEarned, 0);
+    const totalUsd = walletUsd + vaultUsd;
+
+    const hide = (v: string) => hideBalances ? "••••••" : v;
+    const fmtUsd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+    const recentTx = transactions.slice(0, 15);
 
     return (
         <AppShell>
