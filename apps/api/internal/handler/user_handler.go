@@ -42,13 +42,13 @@ type registerUserRequest struct {
 
 func (h *UserHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/users", h.registerUser)
-	mux.HandleFunc("GET /api/v1/users/{id}", h.getUserByID)
 	mux.HandleFunc("GET /api/v1/users/wallet/{address}", h.getUserByWallet)
-	mux.HandleFunc("POST /api/v1/users/{id}/kyc", h.submitKYC)
-	mux.HandleFunc("GET /api/v1/users/{id}/kyc", h.getKYCStatus)
+	mux.HandleFunc("POST /api/v1/users/kyc/{id}", h.submitKYC)
+	mux.HandleFunc("GET /api/v1/users/kyc/{id}", h.getKYCStatus)
 	mux.HandleFunc("GET /api/v1/users/profile", h.getProfile)
 	mux.HandleFunc("PATCH /api/v1/users/profile", h.updateProfile)
-	mux.HandleFunc("GET /api/v1/users/{id}/vaults", h.listUserVaultsForIntelligence)
+	mux.HandleFunc("GET /api/v1/user-vaults/{id}", h.listUserVaultsForIntelligence)
+	mux.HandleFunc("GET /api/v1/users/{id}", h.getUserByID)
 }
 
 func (h *UserHandler) registerUser(w http.ResponseWriter, r *http.Request) {

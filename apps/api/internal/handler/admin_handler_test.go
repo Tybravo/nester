@@ -250,7 +250,7 @@ func (s *adminHandlerStubService) TriggerRebalance(_ context.Context, id uuid.UU
 func TestAdminHandlerGetDashboard(t *testing.T) {
 	vaultID := uuid.New()
 	svc := newAdminHandlerStubService(vaultID)
-	h := NewAdminHandler(svc)
+	h := NewAdminHandler(svc, nil)
 
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -284,7 +284,7 @@ func TestAdminHandlerGetDashboard(t *testing.T) {
 
 func TestAdminHandlerAuthDashboardRequiresAdmin(t *testing.T) {
 	vaultID := uuid.New()
-	h := NewAdminHandler(newAdminHandlerStubService(vaultID))
+	h := NewAdminHandler(newAdminHandlerStubService(vaultID), nil)
 
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -466,7 +466,7 @@ func TestAdminHandlerAuthListPauseVerify(t *testing.T) {
 
 func TestAdminHandlerRebalanceAuth(t *testing.T) {
 	vaultID := uuid.New()
-	h := NewAdminHandler(newAdminHandlerStubService(vaultID))
+	h := NewAdminHandler(newAdminHandlerStubService(vaultID), nil)
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -507,7 +507,7 @@ func TestAdminHandlerRebalanceAuth(t *testing.T) {
 func TestAdminHandlerAllocationEndpointsRequireAdmin(t *testing.T) {
 	vaultID := uuid.New()
 	allocationID := uuid.New()
-	h := NewAdminHandler(newAdminHandlerStubService(vaultID))
+	h := NewAdminHandler(newAdminHandlerStubService(vaultID), nil)
 
 	mux := http.NewServeMux()
 	h.Register(mux)

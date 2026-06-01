@@ -26,6 +26,8 @@ type Config struct {
 	log                   LogConfig
 	allowedOrigins        []string
 	performance           PerformanceConfig
+	tvl                   TVLConfig
+	apyRefresh            APYRefreshConfig
 	startup               StartupConfig
 	bank                  BankConfig
 	transactionPoller     TransactionPollerConfig
@@ -57,6 +59,17 @@ type PerformanceConfig struct {
 	snapshotInterval time.Duration
 }
 
+// TVLConfig governs the background TVL snapshot worker.
+type TVLConfig struct {
+	refreshInterval time.Duration
+}
+
+// APYRefreshConfig governs polling yield_registry for on-chain APY updates.
+type APYRefreshConfig struct {
+	refreshInterval       time.Duration
+	broadcastThresholdBPS int
+}
+
 type ServerConfig struct {
 	host              string
 	port              int
@@ -80,9 +93,10 @@ type StellarConfig struct {
 	horizonURL                string
 	operatorSecret            string
 	stellarUSDCIssuer         string
-	harvestDefaultCompound    bool
-	withdrawalSlippageBps     int
+	yieldRegistryContract     string
 	allocationStrategyAddress string
+	withdrawalSlippageBps     int
+	harvestDefaultCompound    bool
 }
 
 type AllocationConfig struct {
@@ -158,9 +172,10 @@ func Load() (*Config, error) {
 			horizonURL:                loader.requiredURL("STELLAR_HORIZON_URL"),
 			operatorSecret:            loader.stringDefault("STELLAR_OPERATOR_SECRET", ""),
 			stellarUSDCIssuer:         loader.stringDefault("STELLAR_USDC_ISSUER", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"),
-			harvestDefaultCompound:    loader.boolDefault("HARVEST_DEFAULT_COMPOUND", true),
-			withdrawalSlippageBps:     loader.intDefault("WITHDRAWAL_SLIPPAGE_BPS", 50),
+			yieldRegistryContract:     loader.stringDefault("YIELD_REGISTRY_CONTRACT", ""),
 			allocationStrategyAddress: loader.stringDefault("STELLAR_ALLOCATION_STRATEGY_ADDRESS", ""),
+			withdrawalSlippageBps:     loader.intDefault("WITHDRAWAL_SLIPPAGE_BPS", 50),
+			harvestDefaultCompound:    loader.boolDefault("HARVEST_DEFAULT_COMPOUND", true),
 		},
 		allocation: AllocationConfig{
 			minWeightPercent: loader.intDefault("MIN_ALLOCATION_WEIGHT", 5),
@@ -190,6 +205,13 @@ func Load() (*Config, error) {
 		allowedOrigins: loader.stringSliceDefault("ALLOWED_ORIGINS", nil),
 		performance: PerformanceConfig{
 			snapshotInterval: loader.durationDefault("PERFORMANCE_SNAPSHOT_INTERVAL", 1*time.Hour),
+		},
+		tvl: TVLConfig{
+			refreshInterval: loader.durationDefault("TVL_REFRESH_INTERVAL", 15*time.Minute),
+		},
+		apyRefresh: APYRefreshConfig{
+			refreshInterval:       loader.durationDefault("APY_REFRESH_INTERVAL", 5*time.Minute),
+			broadcastThresholdBPS: loader.intDefault("APY_BROADCAST_THRESHOLD", 50),
 		},
 		startup: StartupConfig{
 			enableAutoMigrate: loader.boolDefault("RUN_MIGRATIONS", false),
@@ -286,6 +308,26 @@ func (s StartupConfig) DependencyTimeout() time.Duration {
 
 func (p PerformanceConfig) SnapshotInterval() time.Duration {
 	return p.snapshotInterval
+}
+
+func (c Config) TVL() TVLConfig {
+	return c.tvl
+}
+
+func (t TVLConfig) RefreshInterval() time.Duration {
+	return t.refreshInterval
+}
+
+func (c Config) APYRefresh() APYRefreshConfig {
+	return c.apyRefresh
+}
+
+func (a APYRefreshConfig) RefreshInterval() time.Duration {
+	return a.refreshInterval
+}
+
+func (a APYRefreshConfig) BroadcastThresholdBPS() int {
+	return a.broadcastThresholdBPS
 }
 
 // AllowedOrigins returns the list of origins permitted to make cross-origin
@@ -439,6 +481,18 @@ func (c *Config) validate(loader *envLoader) {
 		loader.addError("PERFORMANCE_SNAPSHOT_INTERVAL must be greater than 0")
 	}
 
+	if c.tvl.refreshInterval <= 0 {
+		loader.addError("TVL_REFRESH_INTERVAL must be greater than 0")
+	}
+
+	if c.apyRefresh.refreshInterval <= 0 {
+		loader.addError("APY_REFRESH_INTERVAL must be greater than 0")
+	}
+
+	if c.apyRefresh.broadcastThresholdBPS < 0 {
+		loader.addError("APY_BROADCAST_THRESHOLD must not be negative")
+	}
+
 	if c.transactionPoller.interval <= 0 {
 		loader.addError("TX_POLLER_INTERVAL must be greater than 0")
 	}
@@ -549,16 +603,20 @@ func (s StellarConfig) OperatorSecret() string {
 	return s.operatorSecret
 }
 
-func (s StellarConfig) HarvestDefaultCompound() bool {
-	return s.harvestDefaultCompound
+func (s StellarConfig) YieldRegistryContract() string {
+	return s.yieldRegistryContract
+}
+
+func (s StellarConfig) AllocationStrategyAddress() string {
+	return s.allocationStrategyAddress
 }
 
 func (s StellarConfig) WithdrawalSlippageBps() int {
 	return s.withdrawalSlippageBps
 }
 
-func (s StellarConfig) AllocationStrategyAddress() string {
-	return s.allocationStrategyAddress
+func (s StellarConfig) HarvestDefaultCompound() bool {
+	return s.harvestDefaultCompound
 }
 
 func (a AllocationConfig) MinWeightPercent() int {

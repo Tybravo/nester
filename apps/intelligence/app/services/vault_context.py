@@ -32,7 +32,7 @@ class VaultContextFetcher:
 
         Returns list of vault dicts: {name, balance_usd, apy, allocation_breakdown}
         """
-        url = f"{self.api_base_url}/api/v1/users/{user_id}/vaults"
+        url = f"{self.api_base_url}/api/v1/user-vaults/{user_id}"
         headers = {
             "Authorization": f"Bearer {self.service_api_key}",
             "Content-Type": "application/json"

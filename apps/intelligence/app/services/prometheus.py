@@ -11,6 +11,7 @@ import aiohttp
 import anthropic
 
 from app.config import settings
+from app.models.coaching import CoachingRequest, CoachingResponse
 from app.models.recommendation import (
     ConfidenceLevel,
     Recommendation,
@@ -111,9 +112,7 @@ def _cache_set(user_id: str, context: dict[str, Any]) -> None:
 
 
 async def fetch_user_context(
-    user_id: str,
-    api_base_url: str,
-    service_api_key: str,
+    user_id: str, api_base_url: str, service_api_key: str,
 ) -> dict[str, Any]:
     """Fetch user vaults, balances, allocations, and recent APY snapshots.
 
@@ -129,7 +128,7 @@ async def fetch_user_context(
     async with aiohttp.ClientSession() as session:
         # Fetch vaults scoped to this user
         async with session.get(
-            f"{base}/api/v1/users/{user_id}/vaults",
+            f"{base}/api/v1/user-vaults/{user_id}",
             headers=headers,
             timeout=aiohttp.ClientTimeout(total=5),
         ) as resp:
@@ -311,7 +310,7 @@ portfolio."""
     # without the instruction appearing in the visible conversation history.
     # If the fetch fails, continue with static knowledge — no error surfaced.
     user_context = await _get_cached_user_context(user_id)
-    context_injection: list[dict[str, str]] = []
+    context_injection: list[anthropic.types.MessageParam] = []
     if user_context:
         goals_block = ""
         active_goals = user_context.get("savings_goals") or []
@@ -332,9 +331,11 @@ portfolio."""
             }
         ]
 
-    messages = context_injection + _to_anthropic_messages(history) + [
-        {"role": "user", "content": message}
-    ]
+    messages: list[anthropic.types.MessageParam] = (
+        context_injection
+        + _to_anthropic_messages(history)
+        + [{"role": "user", "content": message}]
+    )
 
     client = get_client()
     full_response = ""
@@ -368,9 +369,9 @@ def _json_strip(raw: str) -> str:
     return raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
 
 
-async def generate_coaching(request: Any) -> Any:
+async def generate_coaching(request: CoachingRequest) -> CoachingResponse:
     """Generate deposit schedule and progress assessment for a savings goal."""
-    from app.models.coaching import CoachingResponse, DepositScheduleItem
+    from app.models.coaching import DepositScheduleItem
 
     goal = request.goal
     portfolio = request.portfolio
