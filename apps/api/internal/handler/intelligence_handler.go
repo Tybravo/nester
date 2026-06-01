@@ -107,7 +107,7 @@ func (h *IntelligenceHandler) analyze(w http.ResponseWriter, r *http.Request) {
 	h.proxy.Forward(w, r, "/analyze")
 }
 
-func (h *IntelligenceHandler) portfolioInsights(w http.ResponseWriter, r *http.Request) {
+func (h *IntelligenceHandler) GetPortfolioInsights(w http.ResponseWriter, r *http.Request) {
 	userID := r.PathValue("userId")
 	if !h.authorizeUserInsights(w, r, userID) {
 		return
