@@ -37,7 +37,7 @@ import {
 } from "@/lib/stellar/transaction";
 import SavingsChart, { type ChartDataPoint } from "@/components/analytics/SavingsChart";
 import { vaultsApi } from "@/lib/api/vaults";
-import { intelligenceApi, type SavingsPlan, type SavingsPlanResponse } from "@/lib/api/intelligence";
+import { intelligenceApi, type SavingsPlanResponse } from "@/lib/api/intelligence";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -778,85 +778,11 @@ function DepositModal({
     );
 }
 
-// ── Milestone Tracker ─────────────────────────────────────────────────────────
-
-function MilestoneTracker({ plan }: { plan: SavingsPlan | null }) {
-    if (!plan) return null;
-
-    const progress = Math.min(100, (plan.current_balance / plan.goal_amount) * 100);
-    
-    const statusLabels = {
-        on_track: { label: "On Track", color: "bg-emerald-500" },
-        behind_schedule: { label: "Behind Schedule", color: "bg-amber-500" },
-        ahead_of_schedule: { label: "Ahead of Schedule", color: "bg-blue-500" },
-    };
-    
-    const status = statusLabels[plan.status as keyof typeof statusLabels] || statusLabels.on_track;
-
-    return (
-        <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="rounded-2xl border border-black/8 bg-white p-6"
-            aria-label="Goal progress"
-        >
-            <div className="flex items-center justify-between mb-5">
-                <div className="flex items-center gap-2">
-                    <Target className="h-4 w-4 text-black/40" aria-hidden="true" />
-                    <h3 className="text-sm font-semibold text-black">Savings Goal Progress</h3>
-                </div>
-                <div className="flex items-center gap-1.5" aria-label={`Status: ${status.label}`}>
-                    <div className={cn("h-1.5 w-1.5 rounded-full animate-pulse", status.color)} aria-hidden="true" />
-                    <span className="text-[11px] font-semibold text-black/60 uppercase tracking-wider">{status.label}</span>
-                </div>
-            </div>
-
-            <div className="mb-6">
-                <div className="flex justify-between items-end mb-2">
-                    <span className="text-2xl font-light text-black">
-                        ${plan.current_balance.toLocaleString()} 
-                        <span className="text-sm text-black/60 font-medium ml-1">of ${plan.goal_amount.toLocaleString()}</span>
-                    </span>
-                    <span className="text-sm font-mono text-black/60 font-semibold" aria-label={`${progress.toFixed(1)} percent complete`}>{progress.toFixed(1)}%</span>
-                </div>
-                <div className="h-2 w-full bg-black/5 rounded-full overflow-hidden" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
-                    <motion.div 
-                        initial={{ width: 0 }}
-                        animate={{ width: `${progress}%` }}
-                        transition={{ duration: 1, ease: "easeOut" }}
-                        className="h-full bg-black rounded-full"
-                    />
-                </div>
-            </div>
-
-            {plan.next_milestone && (
-                <div className="pt-4 border-t border-black/5 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-black/[0.03]">
-                            <Calendar className="h-3.5 w-3.5 text-black/50" aria-hidden="true" />
-                        </div>
-                        <div>
-                            <p className="text-[11px] text-black/60 uppercase font-bold tracking-tight">Next Milestone</p>
-                            <p className="text-xs text-black/80 font-semibold">{plan.next_milestone.description}</p>
-                        </div>
-                    </div>
-                    <div className="text-right">
-                        <p className="text-sm text-black font-mono font-bold">${plan.next_milestone.target_amount.toLocaleString()}</p>
-                        <p className="text-[10px] text-black/60 font-medium">{new Date(plan.next_milestone.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</p>
-                    </div>
-                </div>
-            )}
-        </motion.div>
-    );
-}
-
 // ── Savings Overview ──────────────────────────────────────────────────────────
-
 function SavingsOverview() {
     const { positions } = usePortfolio();
     const [period, setPeriod] = useState<"30d" | "90d" | "all">("30d");
     const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
-    const [plan, setPlan] = useState<SavingsPlan | null>(null);
     const [loading, setLoading] = useState(true);
 
     const activeVaultPositions = useMemo(() => {
@@ -874,12 +800,9 @@ function SavingsOverview() {
         try {
             // In a real implementation, we might aggregate multiple vaults or just pick the main one
             const vaultId = activeVaultPositions[0].vaultId;
-            const [projection, planData] = await Promise.all([
+            const [projection] = await Promise.all([
                 vaultsApi.getProjection(vaultId),
-                intelligenceApi.getSavingsPlan()
             ]);
-
-            setPlan(planData);
 
             // Mock historical data combined with projection
             // Real historical data would come from transaction history endpoint
@@ -1047,9 +970,6 @@ function SavingsOverview() {
                 
                 <SavingsChart data={chartData} />
             </div>
-
-            {/* Milestone Tracker */}
-            <MilestoneTracker plan={plan} />
         </div>
     );
 }

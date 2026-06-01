@@ -969,6 +969,7 @@ impl VaultContract {
         if total_delta < 0 {
             let current_reserves = get_vault_liquid_reserves(&env);
             set_vault_liquid_reserves(&env, current_reserves - total_delta);
+
         }
 
         env.storage().instance().set(&DataKey::LastRebalanceAt, &now);

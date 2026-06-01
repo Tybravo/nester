@@ -55,23 +55,6 @@ export interface ChatMessage {
   content: string
 }
 
-export interface Milestone {
-    date: string;
-    target_amount: number;
-    description: string;
-}
-
-export interface SavingsPlan {
-    user_id: string;
-    vault_id: string;
-    goal_amount: number;
-    current_balance: number;
-    start_date: string;
-    target_date: string;
-    status: "on_track" | "behind_schedule" | "ahead_of_schedule";
-    next_milestone: Milestone | null;
-}
-
 export interface SavingsPlanRequest {
     goal_usdc: number;
     time_horizon_months: number;
@@ -129,10 +112,6 @@ export const intelligenceApi = {
   /** Portfolio-level insight cards for a given user. */
   getPortfolioInsights: (userId: string) =>
     apiFetch<PortfolioInsight[]>(`/portfolio/${userId}/insights`),
-
-  /** Fetch the active savings plan for the authenticated user. */
-  getSavingsPlan: () =>
-    apiFetch<SavingsPlan | null>('/intelligence/savings-plan'),
 
   /** Generate a concrete, personalized deposit schedule based on user goals. */
   createSavingsPlan: (request: SavingsPlanRequest) =>

@@ -9,7 +9,7 @@ no extra infrastructure.
 import json
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Protocol, Union, Optional, List, Dict
+from typing import Dict, List, Optional, Protocol, Union
 
 from app.config import settings
 
