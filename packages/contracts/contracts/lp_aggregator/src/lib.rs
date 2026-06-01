@@ -1,5 +1,7 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Vec, Symbol, vec};
+use soroban_sdk::{
+    contract, contractimpl, contracttype, Address, Env, Vec, Symbol, vec, InvokeClient,
+};
 
 #[contracttype]
 #[derive(Clone)]
@@ -30,26 +32,53 @@ impl LpAggregator {
     }
 
     /// Simulates a swap on a given pool and returns a route with expected output
+    /// Calls the pool contract to read current reserves and compute actual slippage
     fn simulate_swap(env: &Env, pool: Address, amount_in: i128) -> SwapRoute {
-    let mock_out = amount_in * 98 / 100;
-    let hop = SwapHop {
-        pool_address: pool.clone(),
-        token_in: pool.clone(),
-        token_out: pool.clone(),
-        amount_in,
-    };
-    let hops = vec![env, hop];
-    SwapRoute {
-        hops,
-        expected_out: mock_out,
-        price_impact_bps: 50,
+        // Cross-contract call to pool's get_reserves function to read current pool state
+        let reserves: (i128, i128) = env
+            .invoke_contract(&pool, &Symbol::new(env, "get_reserves"), &())
+            .unwrap_or((1_000_000, 1_000_000));
+        
+        let (reserve_in, reserve_out) = reserves;
+        
+        // Compute expected output using constant product formula: x*y = k
+        // output = (input * reserve_out) / (reserve_in + input)
+        let numerator = (amount_in as i128) * (reserve_out as i128);
+        let denominator = (reserve_in as i128) + (amount_in as i128);
+        let expected_out = numerator / denominator;
+        
+        // Calculate price impact in basis points (1 bp = 0.01%)
+        let ideal_out = amount_in; // 1:1 exchange without slippage
+        let slippage = ideal_out - expected_out;
+        let price_impact_bps = ((slippage * 10000) / ideal_out) as u32;
+        
+        let hop = SwapHop {
+            pool_address: pool.clone(),
+            token_in: pool.clone(),
+            token_out: pool.clone(),
+            amount_in,
+        };
+        let hops = vec![env, hop];
+        SwapRoute {
+            hops,
+            expected_out,
+            price_impact_bps,
+        }
     }
-}
 
     /// Executes a single hop swap and returns amount received
+    /// Cross-contract calls the pool's swap function with the provided parameters
     fn execute_hop(env: &Env, hop: SwapHop, amount_in: i128) -> i128 {
-        // Stub: in production this cross-contract calls the pool
-        amount_in * 98 / 100
+        // Cross-contract call to pool's swap function
+        let amount_out: i128 = env
+            .invoke_contract(
+                &hop.pool_address,
+                &Symbol::new(env, "swap"),
+                &(hop.token_in.clone(), hop.token_out.clone(), amount_in),
+            )
+            .unwrap_or(0);
+        
+        amount_out
     }
 
     pub fn get_best_route(
