@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
 	tvlsvc "github.com/suncrestlabs/nester/apps/api/internal/service/tvl"

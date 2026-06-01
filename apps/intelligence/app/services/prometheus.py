@@ -128,7 +128,7 @@ async def fetch_user_context(
     async with aiohttp.ClientSession() as session:
         # Fetch vaults scoped to this user
         async with session.get(
-            f"{base}/api/v1/users/{user_id}/vaults",
+            f"{base}/api/v1/user-vaults/{user_id}",
             headers=headers,
             timeout=aiohttp.ClientTimeout(total=5),
         ) as resp:

@@ -2,8 +2,6 @@ package handler
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -11,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/shopspring/decimal"
 
