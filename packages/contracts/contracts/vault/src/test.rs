@@ -468,6 +468,71 @@ fn impairment_charges_zero_performance_fee() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Impairment regression test (issue #636)
+//
+// Proves the zero-performance-fee invariant when a real loss reduces the
+// vault's underlying token balance below deposited principal. Tokens are
+// transferred out of the vault first; the Manager then reports the loss via
+// `report_yield` (yield accrual path) so share price tracks the impairment.
+// ---------------------------------------------------------------------------
+#[test]
+fn test_impairment_produces_zero_performance_fee() {
+    let (env, admin, token, vault, _treasury) = setup();
+    let user = Address::generate(&env);
+    let deposit = 1_000 * XLM;
+    mint(&token, &user, deposit);
+
+    // Disable early-withdrawal fee so assertions isolate performance-fee behaviour.
+    let mut fee_config: FeeConfig = vault.get_fee_config();
+    fee_config.early_withdrawal_fee_bps = 0;
+    vault.set_fee_config(&admin, &fee_config);
+
+    vault.deposit(&user, &deposit, &0);
+    assert_eq!(vault.share_price(), 10_000_000, "deposit should occur at rate 1.0");
+
+    let vault_addr = vault.address.clone();
+    let token_client = token::Client::new(&env, &token.address);
+    assert_eq!(token_client.balance(&vault_addr), deposit);
+
+    // Simulate a real loss: transfer tokens out of the vault so underlying
+    // balance falls below the deposited amount (mock_all_auths authorises the
+    // vault as sender).
+    let loss = 400 * XLM;
+    let loss_sink = Address::generate(&env);
+    token_client.transfer(&vault_addr, &loss_sink, &loss);
+    assert!(
+        token_client.balance(&vault_addr) < deposit,
+        "underlying balance must fall below the deposited amount"
+    );
+
+    // Yield accrual path: Manager reports negative yield matching the physical loss.
+    vault.grant_role(&admin, &admin, &Role::Manager);
+    vault.report_yield(&admin, &(-loss));
+
+    let impaired_assets = deposit - loss;
+    assert_eq!(
+        vault.share_price(),
+        6_000_000,
+        "share price must reflect the impairment without fee extraction"
+    );
+
+    let shares = vault.get_shares(&user);
+    let preview = vault.withdrawal_fee_preview(&user, &shares);
+    let performance_fee_collected = preview.performance_fee_deducted;
+    assert_eq!(
+        performance_fee_collected, 0,
+        "impairment must not collect any performance fee"
+    );
+
+    vault.withdraw(&user, &shares, &0);
+    assert_eq!(
+        token_client.balance(&user),
+        impaired_assets,
+        "user receives the full impaired value with zero performance fee"
+    );
+}
+
 #[test]
 #[should_panic(expected = "Error(Contract, #17)")]
 fn withdraw_reverts_when_min_assets_out_is_not_met() {
