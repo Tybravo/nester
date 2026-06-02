@@ -27,6 +27,7 @@ type Config struct {
 	performance           PerformanceConfig
 	startup               StartupConfig
 	bank                  BankConfig
+	prometheus            PrometheusConfig
 }
 
 // StartupConfig governs one-shot work performed before the server begins
@@ -92,6 +93,12 @@ type RedisConfig struct {
 type BankConfig struct {
 	paystackKey    string
 	flutterwaveKey string
+}
+
+type PrometheusConfig struct {
+	BaseURL string
+	APIKey  string
+	Timeout time.Duration
 }
 
 func Load() (*Config, error) {
@@ -166,6 +173,11 @@ func Load() (*Config, error) {
 		bank: BankConfig{
 			paystackKey:    loader.stringDefault("PAYSTACK_SECRET_KEY", ""),
 			flutterwaveKey: loader.stringDefault("FLUTTERWAVE_SECRET_KEY", ""),
+		},
+		prometheus: PrometheusConfig{
+			BaseURL: loader.stringDefault("PROMETHEUS_BASE_URL", "http://localhost:8000"),
+			APIKey:  loader.stringDefault("PROMETHEUS_API_KEY", ""),
+			Timeout: loader.durationDefault("PROMETHEUS_TIMEOUT", 5*time.Second),
 		},
 	}
 
@@ -250,6 +262,10 @@ func (r RedisConfig) Addr() string {
 
 func (c Config) Bank() BankConfig {
 	return c.bank
+}
+
+func (c Config) Prometheus() PrometheusConfig {
+	return c.prometheus
 }
 
 func (b BankConfig) PaystackKey() string {
