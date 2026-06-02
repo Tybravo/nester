@@ -58,13 +58,12 @@
 
 ### 🟠 Fix Soon After Merge
 
-- [ ] **Verify `turbo.json` has no remaining `dapp/backend` pipeline entries.**
-  The issue called this out. The PR description doesn't confirm it was checked.
-  Run: `grep -r "dapp/backend" turbo.json`
+- [x] **Verify `turbo.json` has no remaining `dapp/backend` pipeline entries.**
+  Confirmed clean — no `dapp/backend` references found in `turbo.json`.
 
-- [ ] **Verify root `README.md` has no remaining references to the old Express service.**
-  The PR updated `apps/website/src/app/docs/content.ts` but the root README was not shown in the diff.
-  Run: `grep -r "dapp/backend" README.md`
+- [x] **Verify root `README.md` has no remaining references to the old Express service.**
+  Confirmed clean — no Express or `dapp/backend` references in root `README.md`.
+  Also patched `services/api/README.md` to remove stale "transitioning from Node.js/Express" language.
 
 ---
 
