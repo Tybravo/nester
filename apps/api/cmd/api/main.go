@@ -21,6 +21,7 @@ import (
 	migratedb "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/suncrestlabs/nester/apps/api/internal/auth"
+	cryptopkg "github.com/suncrestlabs/nester/apps/api/internal/crypto"
 	"github.com/suncrestlabs/nester/apps/api/internal/config"
 	"github.com/suncrestlabs/nester/apps/api/internal/domain/transaction"
 	"github.com/suncrestlabs/nester/apps/api/internal/handler"
@@ -113,6 +114,24 @@ func run() error {
 	transactionService.SetBalanceApplier(vaultRepository)
 	transactionHandler := handler.NewTransactionHandler(transactionService)
 
+	bankAccountRepository := postgres.NewBankAccountRepository(db)
+	var accountCipher *cryptopkg.AccountCipher
+	if key := cfg.BankAccountEncryptionKey(); key != "" {
+		cipher, cipherErr := cryptopkg.NewAccountCipher(key)
+		if cipherErr != nil {
+			return fmt.Errorf("bank account cipher: %w", cipherErr)
+		}
+		accountCipher = cipher
+	}
+
+	paystackResolver := service.NewPaystackResolver(cfg.Bank().PaystackKey())
+	flutterwaveResolver := service.NewFlutterwaveResolver(cfg.Bank().FlutterwaveKey())
+	bankService := service.NewBankService(paystackResolver, flutterwaveResolver)
+	bankHandler := handler.NewBankHandler(bankService)
+
+	bankAccountService := service.NewBankAccountService(bankAccountRepository, accountCipher, bankService)
+	bankAccountHandler := handler.NewBankAccountHandler(bankAccountService)
+
 	userRepository := postgres.NewUserRepository(db)
 	userService := service.NewUserService(userRepository)
 	userHandler := handler.NewUserHandler(userService)
@@ -122,7 +141,7 @@ func run() error {
 	notificationHandler := handler.NewNotificationHandler(notificationRepository)
 
 	settlementRepository := postgres.NewSettlementRepository(db)
-	settlementService := service.NewSettlementService(settlementRepository)
+	settlementService := service.NewSettlementService(settlementRepository, bankAccountService)
 	settlementHandler := handler.NewSettlementHandler(settlementService, userService)
 
 	adminRepository := postgres.NewAdminRepository(db)
@@ -291,11 +310,6 @@ func run() error {
 
 	depHTTPClient := &http.Client{Timeout: cfg.Startup().DependencyTimeout()}
 
-	paystackResolver := service.NewPaystackResolver(cfg.Bank().PaystackKey())
-	flutterwaveResolver := service.NewFlutterwaveResolver(cfg.Bank().FlutterwaveKey())
-	bankService := service.NewBankService(paystackResolver, flutterwaveResolver)
-	bankHandler := handler.NewBankHandler(bankService)
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", livenessHandler(&ready))
 	mux.HandleFunc("GET /healthz", livenessHandler(&ready))
@@ -378,6 +392,7 @@ func run() error {
 	performanceSnapshotsHandler.Register(mux)
 
 	bankHandler.Register(mux)
+	bankAccountHandler.Register(mux)
 
 	mux.HandleFunc("GET /ws", wsHub.ServeWs)
 
