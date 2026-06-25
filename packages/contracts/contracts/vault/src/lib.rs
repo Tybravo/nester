@@ -102,6 +102,8 @@ const PAUSE: Symbol = symbol_short!("PAUSE");
 const UNPAUSE: Symbol = symbol_short!("UNPAUSE");
 const CB_TRIGGER: Symbol = symbol_short!("CB_TRIG");
 const REBALANCE: Symbol = symbol_short!("REBAL");
+const HARVEST: Symbol = symbol_short!("HARVEST");
+const HARVEST_VLT: Symbol = symbol_short!("HARV_VLT");
 const MIN_REBALANCE_AMOUNT: i128 = 1;
 const DEFAULT_REBALANCE_COOLDOWN: u64 = 3600;
 const FEE_CONFIG_UPDATED: Symbol = symbol_short!("FEE_CFG");
@@ -227,6 +229,26 @@ pub struct WithdrawalFeePreview {
     pub net_amount_received: i128,
 }
 
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct HarvestResult {
+    pub gross_yield: i128,
+    pub performance_fee: i128,
+    pub net_yield: i128,
+    pub compounded: bool, // true if net_yield was reinvested into vault shares
+    pub new_share_balance: i128, // user's vault-token balance after harvest
+    pub user: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct VaultHarvestResult {
+    pub total_gross_yield: i128,
+    pub total_fee_collected: i128,
+    pub total_net_yield: i128,
+    pub positions_harvested: u32,
+}
+
 // ---------------------------------------------------------------------------
 // Storage
 // ---------------------------------------------------------------------------
@@ -264,6 +286,9 @@ enum DataKey {
     AllocatedSources,
     LastRebalanceAt,
     RebalanceCooldown,
+    UserYield(Address),
+    TotalReportedYield,
+    LastHarvestAt(Address),
 }
 
 #[contracttype]
@@ -510,6 +535,45 @@ fn current_allocations_vec(env: &Env) -> Vec<CurrentAllocationView> {
         });
     }
     out
+}
+
+fn get_user_yield(env: &Env, user: &Address) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::UserYield(user.clone()))
+        .unwrap_or(0)
+}
+
+fn set_user_yield(env: &Env, user: &Address, amount: i128) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::UserYield(user.clone()), &amount);
+}
+
+fn get_total_reported_yield(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::TotalReportedYield)
+        .unwrap_or(0)
+}
+
+fn set_total_reported_yield(env: &Env, amount: i128) {
+    env.storage()
+        .instance()
+        .set(&DataKey::TotalReportedYield, &amount);
+}
+
+fn get_last_harvest_at(env: &Env, user: &Address) -> u64 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::LastHarvestAt(user.clone()))
+        .unwrap_or(0)
+}
+
+fn set_last_harvest_at(env: &Env, user: &Address, ts: u64) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::LastHarvestAt(user.clone()), &ts);
 }
 
 fn check_circuit_breaker(env: &Env, amount: i128) {
@@ -844,6 +908,201 @@ impl VaultContract {
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::ArithmeticOverflow));
         set_total_assets(&env, new_total);
         sync_vault_token_total_assets(&env);
+
+        // Track per-caller pending yield and aggregate reported yield for harvest.
+        // Only accumulate positive yield; losses (negative amount) reduce
+        // pending yield down to zero and reduce the aggregate counter.
+        if amount > 0 {
+            let user_yield = get_user_yield(&env, &caller);
+            let new_user_yield = user_yield
+                .checked_add(amount)
+                .unwrap_or_else(|| panic_with_error!(&env, ContractError::ArithmeticOverflow));
+            set_user_yield(&env, &caller, new_user_yield);
+
+            let total_reported = get_total_reported_yield(&env);
+            let new_total_reported = total_reported
+                .checked_add(amount)
+                .unwrap_or_else(|| panic_with_error!(&env, ContractError::ArithmeticOverflow));
+            set_total_reported_yield(&env, new_total_reported);
+        } else if amount < 0 {
+            // For impairments, reduce the user's pending yield (floor at zero).
+            let user_yield = get_user_yield(&env, &caller);
+            let reduced = user_yield.saturating_add(amount).max(0);
+            set_user_yield(&env, &caller, reduced);
+
+            let total_reported = get_total_reported_yield(&env);
+            let reduced_total = total_reported.saturating_add(amount).max(0);
+            set_total_reported_yield(&env, reduced_total);
+        }
+    }
+
+    /// Claim the pending yield accumulated for `user` by previous `report_yield`
+    /// calls (where the caller was `user`).
+    ///
+    /// Steps (issue #518):
+    ///  1. Calculate accrued yield since last harvest.
+    ///  2. Deduct performance fee — only on net positive yield, never on impairment.
+    ///  3. Send the fee portion to the treasury contract.
+    ///  4. Compound the net yield: mint new vault-token shares at the current price
+    ///     and credit them to `user`, then increase TotalAssets accordingly.
+    ///  5. Update `LastHarvestAt` timestamp for `user`.
+    ///
+    /// Returns a zero-filled `HarvestResult` with `compounded: false` when the
+    /// user has no pending yield, so callers can always call this safely.
+    pub fn harvest(env: Env, user: Address) -> HarvestResult {
+        require_initialized(&env);
+        require_active(&env);
+        user.require_auth();
+
+        let gross_yield = get_user_yield(&env, &user);
+        let now = env.ledger().timestamp();
+
+        if gross_yield == 0 {
+            set_last_harvest_at(&env, &user, now);
+            let new_share_balance = get_shares(&env, &user);
+            return HarvestResult {
+                gross_yield: 0,
+                performance_fee: 0,
+                net_yield: 0,
+                compounded: false,
+                new_share_balance,
+                user,
+            };
+        }
+
+        let config = get_fee_config(&env);
+        let performance_fee = nester_common::fees::calculate_performance_fee(
+            gross_yield,
+            config.performance_fee_bps,
+        )
+        .unwrap_or_else(|e| panic_with_error!(&env, e));
+
+        let net_yield = gross_yield
+            .checked_sub(performance_fee)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::ArithmeticOverflow));
+
+        // Transfer performance fee to treasury.
+        if performance_fee > 0 {
+            let token_address = self::VaultContract::get_token(env.clone());
+            token::Client::new(&env, &token_address).transfer(
+                &env.current_contract_address(),
+                &config.treasury_address,
+                &performance_fee,
+            );
+            env.invoke_contract::<()>(
+                &config.treasury_address,
+                &Symbol::new(&env, "receive_fees"),
+                (performance_fee,).into_val(&env),
+            );
+            // Reduce TotalAssets by the fee sent out.
+            let total_assets = get_total_assets(&env);
+            let post_fee_assets = total_assets
+                .checked_sub(performance_fee)
+                .unwrap_or_else(|| panic_with_error!(&env, ContractError::ArithmeticOverflow));
+            set_total_assets(&env, post_fee_assets);
+            sync_vault_token_total_assets(&env);
+        }
+
+        // Compound net yield: mint new shares for the user at the current price.
+        // The gross yield was already added to TotalAssets by report_yield, so
+        // only the fee reduction above affects TotalAssets here.
+        let new_shares = if net_yield > 0 {
+            vault_token_client(&env).mint_for_deposit(&user, &net_yield)
+        } else {
+            0
+        };
+        let _ = new_shares; // shares minted internally; user balance updated by vault token
+
+        // Reset per-user pending yield to zero and record harvest timestamp.
+        set_user_yield(&env, &user, 0);
+        set_last_harvest_at(&env, &user, now);
+
+        let new_share_balance = get_shares(&env, &user);
+
+        let result = HarvestResult {
+            gross_yield,
+            performance_fee,
+            net_yield,
+            compounded: net_yield > 0,
+            new_share_balance,
+            user: user.clone(),
+        };
+
+        emit_event(&env, VAULT, HARVEST, user, result.clone());
+
+        result
+    }
+
+    /// Admin-level vault-wide harvest: reads the aggregate yield reported since
+    /// the last vault harvest, extracts the performance fee portion, transfers
+    /// it to the treasury, and resets the `TotalReportedYield` counter to zero.
+    /// Suitable for periodic treasury collection without enumerating individual
+    /// user positions on-chain (Soroban does not support unbounded iteration).
+    pub fn harvest_vault(env: Env, admin: Address) -> VaultHarvestResult {
+        require_initialized(&env);
+        require_active(&env);
+        admin.require_auth();
+        AccessControl::require_role(&env, &admin, Role::Admin);
+
+        let total_gross_yield = get_total_reported_yield(&env);
+
+        if total_gross_yield == 0 {
+            return VaultHarvestResult {
+                total_gross_yield: 0,
+                total_fee_collected: 0,
+                total_net_yield: 0,
+                positions_harvested: 0,
+            };
+        }
+
+        let config = get_fee_config(&env);
+        let total_fee_collected = nester_common::fees::calculate_performance_fee(
+            total_gross_yield,
+            config.performance_fee_bps,
+        )
+        .unwrap_or_else(|e| panic_with_error!(&env, e));
+
+        let total_net_yield = total_gross_yield
+            .checked_sub(total_fee_collected)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::ArithmeticOverflow));
+
+        // Transfer performance fee to treasury.
+        if total_fee_collected > 0 {
+            let token_address = self::VaultContract::get_token(env.clone());
+            token::Client::new(&env, &token_address).transfer(
+                &env.current_contract_address(),
+                &config.treasury_address,
+                &total_fee_collected,
+            );
+            env.invoke_contract::<()>(
+                &config.treasury_address,
+                &Symbol::new(&env, "receive_fees"),
+                (total_fee_collected,).into_val(&env),
+            );
+            // Reduce TotalAssets by the fee sent to treasury.
+            let total_assets = get_total_assets(&env);
+            let post_fee_assets = total_assets
+                .checked_sub(total_fee_collected)
+                .unwrap_or_else(|| panic_with_error!(&env, ContractError::ArithmeticOverflow));
+            set_total_assets(&env, post_fee_assets);
+            sync_vault_token_total_assets(&env);
+        }
+
+        // Reset aggregate yield counter; per-user UserYield entries are left
+        // in place — they are swept individually by each user's own harvest() call.
+        set_total_reported_yield(&env, 0);
+
+        // positions_harvested reflects the aggregate sweep (one vault-wide sweep).
+        let result = VaultHarvestResult {
+            total_gross_yield,
+            total_fee_collected,
+            total_net_yield,
+            positions_harvested: 1,
+        };
+
+        emit_event(&env, VAULT, HARVEST_VLT, admin, result.clone());
+
+        result
     }
 
     /// Read-only check: does the live allocation drift exceed the strategy's
@@ -1655,6 +1914,10 @@ impl VaultContract {
 
     pub fn get_accrued_fees(env: Env) -> i128 {
         get_accrued_fees(&env)
+    }
+
+    pub fn get_last_harvest_at(env: Env, user: Address) -> u64 {
+        get_last_harvest_at(&env, &user)
     }
 
     pub fn get_max_deposit(env: Env) -> i128 {
