@@ -85,9 +85,10 @@ type SavingsGoal struct {
 	Deadline      time.Time       `json:"deadline"`
 	Description   string          `json:"description,omitempty"`
 	Category      GoalCategory    `json:"category"`
-	CurrentAmount decimal.Decimal `json:"current_amount"`
-	ProgressPct   float64         `json:"progress_pct"`
-	CreatedAt     time.Time       `json:"created_at"`
+	CurrentAmount      decimal.Decimal `json:"current_amount"`
+	ProgressPct        float64         `json:"progress_pct"`
+	NotifiedMilestones []int           `json:"-"`
+	CreatedAt          time.Time       `json:"created_at"`
 	UpdatedAt     time.Time       `json:"updated_at"`
 }
 
@@ -98,4 +99,5 @@ type Repository interface {
 	Update(ctx context.Context, goal *SavingsGoal) error
 	Delete(ctx context.Context, id, userID uuid.UUID) error
 	SumVaultBalance(ctx context.Context, userID uuid.UUID, currency string) (decimal.Decimal, error)
+	UpdateMilestones(ctx context.Context, goalID uuid.UUID, milestones []int) error
 }
