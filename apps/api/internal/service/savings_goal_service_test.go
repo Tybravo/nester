@@ -150,7 +150,7 @@ func TestSavingsGoalService_MilestoneNotifications(t *testing.T) {
 
 	t.Run("24 percent no notification", func(t *testing.T) {
 		repo := newMemorySavingsGoalRepo()
-		repo.balances[userID] = decimal.NewFromInt(24)
+		repo.setBalance(userID, "USDC", decimal.NewFromInt(24))
 		notifier := &recordingGoalMilestoneNotifier{}
 		svc := NewSavingsGoalService(repo, notifier)
 
@@ -171,7 +171,7 @@ func TestSavingsGoalService_MilestoneNotifications(t *testing.T) {
 
 	t.Run("25 percent fires notification", func(t *testing.T) {
 		repo := newMemorySavingsGoalRepo()
-		repo.balances[userID] = decimal.NewFromInt(25)
+		repo.setBalance(userID, "USDC", decimal.NewFromInt(25))
 		notifier := &recordingGoalMilestoneNotifier{}
 		svc := NewSavingsGoalService(repo, notifier)
 
@@ -195,7 +195,7 @@ func TestSavingsGoalService_MilestoneNotifications(t *testing.T) {
 
 	t.Run("25 percent again no duplicate", func(t *testing.T) {
 		repo := newMemorySavingsGoalRepo()
-		repo.balances[userID] = decimal.NewFromInt(25)
+		repo.setBalance(userID, "USDC", decimal.NewFromInt(25))
 		notifier := &recordingGoalMilestoneNotifier{}
 		svc := NewSavingsGoalService(repo, notifier)
 
@@ -359,7 +359,7 @@ func TestSavingsGoalService_Create_ValidXLMGoal(t *testing.T) {
 	userID := uuid.New()
 	repo := newMemorySavingsGoalRepo()
 	repo.setBalance(userID, "XLM", decimal.NewFromInt(120))
-	svc := NewSavingsGoalService(repo)
+	svc := NewSavingsGoalService(repo, nil)
 
 	goal, err := svc.Create(ctx, userID, CreateSavingsGoalInput{
 		TargetAmount: decimal.NewFromInt(500),
@@ -383,7 +383,7 @@ func TestSavingsGoalService_Create_ValidUSDCGoal(t *testing.T) {
 	userID := uuid.New()
 	repo := newMemorySavingsGoalRepo()
 	repo.setBalance(userID, "USDC", decimal.NewFromInt(250))
-	svc := NewSavingsGoalService(repo)
+	svc := NewSavingsGoalService(repo, nil)
 
 	goal, err := svc.Create(ctx, userID, CreateSavingsGoalInput{
 		TargetAmount: decimal.NewFromInt(1000),
@@ -404,7 +404,7 @@ func TestSavingsGoalService_Create_ValidUSDCGoal(t *testing.T) {
 func TestSavingsGoalService_Create_InvalidCurrency(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
-	svc := NewSavingsGoalService(newMemorySavingsGoalRepo())
+	svc := NewSavingsGoalService(newMemorySavingsGoalRepo(), nil)
 
 	_, err := svc.Create(ctx, userID, CreateSavingsGoalInput{
 		TargetAmount: decimal.NewFromInt(1000),
@@ -438,7 +438,7 @@ func TestSavingsGoalService_Summary_MixedCurrencies(t *testing.T) {
 		Currency:     savingsgoal.CurrencyXLM,
 		Deadline:     testDeadline(),
 	}
-	svc := NewSavingsGoalService(repo)
+	svc := NewSavingsGoalService(repo, nil)
 
 	summary, err := svc.Summary(ctx, userID)
 	if err != nil {

@@ -26,6 +26,8 @@ export const metadata: Metadata = {
     },
 };
 
+import { ToastProvider } from "@/components/ui/toast/toast-provider";
+
 import { ConsentProvider } from "@/context/consent-context";
 import { ConsentGatedPrometheus } from "@/components/consent-gated-prometheus";
 import { CookieConsentBanner } from "@/components/cookie-consent-banner";
@@ -64,30 +66,32 @@ export default function RootLayout({
                 suppressHydrationWarning
                 className={`${inter.className} ${inter.variable} antialiased`}
             >
-                <ConsentProvider>
-                    <ReactQueryProvider>
-                        <NetworkProvider>
-                            <SettingsProvider>
-                                <WalletProvider>
-                                    <NotificationsProvider>
-                                        <OfflineBanner />
-                                        <NetworkBanner />
-                                        <PortfolioProvider>
-                                            <WebSocketProvider>
-                                                <OnboardingProvider>
-                                                    {children}
-                                                    <NotificationsToaster />
-                                                    <ConsentGatedPrometheus />
-                                                    <CookieConsentBanner />
-                                                </OnboardingProvider>
-                                            </WebSocketProvider>
-                                        </PortfolioProvider>
-                                    </NotificationsProvider>
-                                </WalletProvider>
-                            </SettingsProvider>
-                        </NetworkProvider>
-                    </ReactQueryProvider>
-                </ConsentProvider>
+                <ToastProvider>
+                    <ConsentProvider>
+                        <ReactQueryProvider>
+                            <NetworkProvider>
+                                <SettingsProvider>
+                                    <WalletProvider>
+                                        <NotificationsProvider>
+                                            <OfflineBanner />
+                                            <NetworkBanner />
+                                            <PortfolioProvider>
+                                                <WebSocketProvider>
+                                                    <OnboardingProvider>
+                                                        {children}
+                                                        <NotificationsToaster />
+                                                        <ConsentGatedPrometheus />
+                                                        <CookieConsentBanner />
+                                                    </OnboardingProvider>
+                                                </WebSocketProvider>
+                                            </PortfolioProvider>
+                                        </NotificationsProvider>
+                                    </WalletProvider>
+                                </SettingsProvider>
+                            </NetworkProvider>
+                        </ReactQueryProvider>
+                    </ConsentProvider>
+                </ToastProvider>
             </body>
         </html>
     );
