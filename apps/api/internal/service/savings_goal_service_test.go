@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -458,5 +459,167 @@ func TestSavingsGoalService_Summary_MixedCurrencies(t *testing.T) {
 	}
 	if !summary.TotalTargetXLM.Equal(decimal.NewFromInt(500)) {
 		t.Fatalf("total_target_xlm = %s, want 500", summary.TotalTargetXLM)
+	}
+	// #683: status counts, USDC overall progress, next deadline.
+	if summary.ActiveGoals != 2 || summary.CompletedGoals != 0 {
+		t.Fatalf("active/completed = %d/%d, want 2/0", summary.ActiveGoals, summary.CompletedGoals)
+	}
+	if summary.OverallProgressPct != 10 { // 100 saved / 1000 target USDC
+		t.Fatalf("overall_progress_pct = %v, want 10", summary.OverallProgressPct)
+	}
+	if summary.NextDeadline == nil {
+		t.Fatal("next_deadline = nil, want the nearest active deadline")
+	}
+}
+
+func TestSavingsGoalService_Summary_NoGoals(t *testing.T) {
+	ctx := context.Background()
+	svc := NewSavingsGoalService(newMemorySavingsGoalRepo(), nil)
+
+	summary, err := svc.Summary(ctx, uuid.New())
+	if err != nil {
+		t.Fatalf("Summary() error = %v", err)
+	}
+	if summary.GoalCount != 0 || summary.ActiveGoals != 0 || summary.CompletedGoals != 0 {
+		t.Fatalf("counts = %+v, want all zero", summary)
+	}
+	if summary.OverallProgressPct != 0 {
+		t.Fatalf("overall_progress_pct = %v, want 0", summary.OverallProgressPct)
+	}
+	if summary.NextDeadline != nil {
+		t.Fatalf("next_deadline = %v, want nil", summary.NextDeadline)
+	}
+}
+
+func TestSavingsGoalService_Summary_CompletedAndProgressCap(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	repo := newMemorySavingsGoalRepo()
+	repo.setBalance(userID, "USDC", decimal.NewFromInt(5000)) // saved exceeds target
+	goalID := uuid.New()
+	repo.goals[goalID] = savingsgoal.SavingsGoal{
+		ID:           goalID,
+		UserID:       userID,
+		TargetAmount: decimal.NewFromInt(1000),
+		Currency:     savingsgoal.CurrencyUSDC,
+		Deadline:     testDeadline(),
+	}
+	svc := NewSavingsGoalService(repo, nil)
+
+	summary, err := svc.Summary(ctx, userID)
+	if err != nil {
+		t.Fatalf("Summary() error = %v", err)
+	}
+	if summary.CompletedGoals != 1 || summary.ActiveGoals != 0 {
+		t.Fatalf("active/completed = %d/%d, want 0/1", summary.ActiveGoals, summary.CompletedGoals)
+	}
+	if summary.OverallProgressPct != 100 {
+		t.Fatalf("overall_progress_pct = %v, want 100 (capped)", summary.OverallProgressPct)
+	}
+	if summary.NextDeadline != nil {
+		t.Fatalf("next_deadline = %v, want nil (no active goals)", summary.NextDeadline)
+	}
+}
+
+func TestSavingsGoalService_Create_DeadlineValidation(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now().UTC()
+	cases := []struct {
+		name     string
+		deadline time.Time
+		wantErr  bool
+	}{
+		{"deadline in the past is rejected", now.Add(-24 * time.Hour), true},
+		{"deadline in 1 hour is rejected (under 24h)", now.Add(time.Hour), true},
+		{"deadline in 25 hours is accepted", now.Add(25 * time.Hour), false},
+		{"deadline in 30 days is accepted", now.Add(30 * 24 * time.Hour), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := NewSavingsGoalService(newMemorySavingsGoalRepo(), nil)
+			_, err := svc.Create(ctx, uuid.New(), CreateSavingsGoalInput{
+				TargetAmount: decimal.NewFromInt(1000),
+				Currency:     "USDC",
+				Deadline:     tc.deadline,
+			})
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("Create() error = nil, want error")
+				}
+				if !errors.Is(err, savingsgoal.ErrInvalidGoal) {
+					t.Fatalf("Create() error = %v, want ErrInvalidGoal", err)
+				}
+			} else if err != nil {
+				t.Fatalf("Create() error = %v, want nil", err)
+			}
+		})
+	}
+}
+
+func TestSavingsGoalService_Update_DeadlineToPastRejected(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	repo := newMemorySavingsGoalRepo()
+	goalID := uuid.New()
+	repo.goals[goalID] = savingsgoal.SavingsGoal{
+		ID:           goalID,
+		UserID:       userID,
+		TargetAmount: decimal.NewFromInt(1000),
+		Currency:     savingsgoal.CurrencyUSDC,
+		Deadline:     time.Now().UTC().Add(30 * 24 * time.Hour),
+	}
+	svc := NewSavingsGoalService(repo, nil)
+
+	past := time.Now().UTC().Add(-time.Hour)
+	_, err := svc.Update(ctx, userID, goalID, UpdateSavingsGoalInput{Deadline: &past})
+	if !errors.Is(err, savingsgoal.ErrInvalidGoal) {
+		t.Fatalf("Update() error = %v, want ErrInvalidGoal", err)
+	}
+}
+
+func TestSavingsGoalService_Update_ExtendOverdueGoalSucceeds(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	repo := newMemorySavingsGoalRepo()
+	repo.setBalance(userID, "USDC", decimal.NewFromInt(100)) // below target → not completed
+	goalID := uuid.New()
+	repo.goals[goalID] = savingsgoal.SavingsGoal{
+		ID:           goalID,
+		UserID:       userID,
+		TargetAmount: decimal.NewFromInt(1000),
+		Currency:     savingsgoal.CurrencyUSDC,
+		Deadline:     time.Now().UTC().Add(-48 * time.Hour), // already overdue
+	}
+	svc := NewSavingsGoalService(repo, nil)
+
+	newDeadline := time.Now().UTC().Add(14 * 24 * time.Hour)
+	updated, err := svc.Update(ctx, userID, goalID, UpdateSavingsGoalInput{Deadline: &newDeadline})
+	if err != nil {
+		t.Fatalf("Update() error = %v, want nil (extending an overdue goal is allowed)", err)
+	}
+	if !updated.Deadline.Equal(newDeadline) {
+		t.Fatalf("deadline = %v, want %v", updated.Deadline, newDeadline)
+	}
+}
+
+func TestSavingsGoalService_Update_DeadlineOnCompletedGoalConflicts(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	repo := newMemorySavingsGoalRepo()
+	repo.setBalance(userID, "USDC", decimal.NewFromInt(1000)) // meets target → completed
+	goalID := uuid.New()
+	repo.goals[goalID] = savingsgoal.SavingsGoal{
+		ID:           goalID,
+		UserID:       userID,
+		TargetAmount: decimal.NewFromInt(1000),
+		Currency:     savingsgoal.CurrencyUSDC,
+		Deadline:     time.Now().UTC().Add(30 * 24 * time.Hour),
+	}
+	svc := NewSavingsGoalService(repo, nil)
+
+	newDeadline := time.Now().UTC().Add(60 * 24 * time.Hour)
+	_, err := svc.Update(ctx, userID, goalID, UpdateSavingsGoalInput{Deadline: &newDeadline})
+	if !errors.Is(err, savingsgoal.ErrGoalCompleted) {
+		t.Fatalf("Update() error = %v, want ErrGoalCompleted", err)
 	}
 }
