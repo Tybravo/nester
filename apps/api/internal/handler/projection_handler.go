@@ -173,7 +173,7 @@ func (h *ProjectionHandler) calculateVaultProjection(w http.ResponseWriter, r *h
 		return
 	}
 
-	userID, err := uuid.Parse(user.ID)
+	_, err = uuid.Parse(user.ID)
 	if err != nil {
 		response.WriteJSON(w, http.StatusUnauthorized, response.Err(http.StatusUnauthorized, "UNAUTHORIZED", "invalid user ID"))
 		return
