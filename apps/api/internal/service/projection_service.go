@@ -203,6 +203,18 @@ func NewCompoundInterestCalculator() *CompoundInterestCalculator {
 
 // Calculate implements the compound interest formula with monthly contributions
 func (c *CompoundInterestCalculator) Calculate(input projection.ProjectionInput) []projection.ProjectionPoint {
+	// Security: Limit the maximum period to prevent excessive memory allocation
+	const maxPeriodMonths = 1200 // 100 years maximum
+	if input.PeriodMonths > maxPeriodMonths {
+		// Return empty slice for invalid input rather than panicking
+		return []projection.ProjectionPoint{}
+	}
+
+	// Additional security check for negative values
+	if input.PeriodMonths <= 0 {
+		return []projection.ProjectionPoint{}
+	}
+
 	points := make([]projection.ProjectionPoint, 0, input.PeriodMonths)
 
 	// Convert APY to monthly rate
